@@ -1,4 +1,5 @@
 # files and file types to ignore
+*.swp
 *.pyc
 *.pyd
 *.so
@@ -23,3 +24,5 @@ __pycache__/
 *.nbi
 *.pyd
 docs/source/api_ref/generated/
+
+
