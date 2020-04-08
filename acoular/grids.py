@@ -21,6 +21,7 @@ property_depends_on, cached_property, on_trait_change
 from traits.trait_errors import TraitError
 
 from .internal import digest
+import pdb
 
 class Grid( HasPrivateTraits ):
     """
@@ -166,6 +167,10 @@ class RectGrid( Grid ):
                      self.z:self.z+0.1]
         bpos.resize((3, self.size))
         return bpos
+
+    def _set_gpos ( self, gpos ):
+        self._gpos = gpos
+        return self
 
     def index ( self, x, y ):
         """
