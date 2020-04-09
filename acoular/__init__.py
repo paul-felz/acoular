@@ -81,7 +81,7 @@ FlowField, OpenJet, SlotJet, GeneralFlowEnvironment, \
 Orientation, Wall, WallOrientation, Wall3Points, Cuboid 
 from .microphones import MicGeom
 from .spectra import PowerSpectra, PowerSpectra as EigSpectra, synthetic
-from .ism import IsmRoom, Gridextender, SteeringVectorRoom
+from .ism import IsmRoom, GridExtender, SteeringVectorRoom
 
 from .fbeamform import BeamformerBase, BeamformerCapon, BeamformerEig, \
 BeamformerMusic, BeamformerDamas, BeamformerDamasPlus, BeamformerOrth,BeamformerCleansc, \

@@ -29,6 +29,7 @@ CArray, cached_property, Trait, property_depends_on, Tuple, List, Instance
 from enum import Enum
 
 from .internal import digest
+import pdb
 
 def cartToCyl(x, Q=identity(3)):
     """

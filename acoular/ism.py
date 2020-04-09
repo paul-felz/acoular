@@ -246,7 +246,7 @@ class SteeringVectorRoom( HasPrivateTraits ):
                 }[self.steer_type]
         return func(self.transfer(f, ind))
 
-class Gridextender(Grid):
+class GridExtender(Grid):
     
     grid = Instance(Grid(), Grid)
     
@@ -294,24 +294,18 @@ class Gridextender(Grid):
     def _set_mirrgrids( self ):
         gpos = self.grid.pos()
         for wall in self.cuboid.walls:
-            #temp = self.grid.clone_traits()
+            temp = self.clone_traits()
             mirr_gpos = zeros([3,gpos.shape[1]])
-            #pdb.set_trace()
             for i in range(0,mirr_gpos.shape[1]):
                 gridpoint = (gpos[0,i],gpos[1,i],gpos[2,i])
                 gridpoint_mirr = self.mirror_gridpoint(wall.n0, wall.point1, gridpoint)
                 mirr_gpos[0,i] = gridpoint_mirr[0]
                 mirr_gpos[1,i] = gridpoint_mirr[1]
                 mirr_gpos[2,i] = gridpoint_mirr[2]
-            #pdb.set_trace()
-            #temp.gpos = mirr_gpos
-            #pdb.set_trace()
-            #temp._set_gpos(mirr_gpos)
-            self.mirrgrids.append([mirr_gpos])
-            #temp._set_gpos(mirr_gpos)
-            #       self.add_grid(mirr_gpos)
             pdb.set_trace()
-        #return temp.mirrgrids 
+            temp.grid.gpos = mirr_gpos
+            #TODO: new nxsteps size etc
+            self.mirrgrids.extend([temp.grid])
 
     @property_depends_on('_nxsteps,_nysteps')
     def _get_size(self):
@@ -323,18 +317,25 @@ class Gridextender(Grid):
     def _get_shape ( self ):
         return (self._nxsteps, self._nysteps)
 
+    def _set__nxsteps(self):
+        return self.grid.nxsteps
+
+    def _set__nysteps(self):
+        return self.grid.nysteps
+    """
     def _set__nxsteps(self,xwallnum,gridmatchwall):
         self._nxsteps = (xwallnum+1)*self.grid.nxsteps-gridmatchwall
 
     def _set__nysteps(self,ywallnum,gridmatchwall):
         self._nysteps = (ywallnum+1)*self.grid.nysteps-gridmatchwall
-    
+
     def extend (self) :
         x_min = self.gpos[0,:].min()
         x_max = self.gpos[0,:].max()
         y_min = self.gpos[1,:].min()
         y_max = self.gpos[1,:].max()
         return (x_min, x_max, y_min, y_max)
+    """
 """
 class Gridextender(Grid):
     

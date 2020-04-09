@@ -49,7 +49,7 @@ from warnings import warn
 
 from traits.api import HasPrivateTraits, Float, Int, ListInt, ListFloat, \
 CArray, Property, Instance, Trait, Bool, Range, Delegate, Enum, Any, \
-cached_property, on_trait_change, property_depends_on
+cached_property, on_trait_change, property_depends_on, List
 from traits.trait_errors import TraitError
 
 from .fastFuncs import beamformerFreq, calcTransfer, calcPointSpreadFunction, \
@@ -63,6 +63,8 @@ from .microphones import MicGeom
 from .configuration import config
 from .environments import Environment
 from .spectra import PowerSpectra
+from .ism import GridExtender
+import pdb
 
 class SteeringVector( HasPrivateTraits ):
     """ 
@@ -99,10 +101,14 @@ class SteeringVector( HasPrivateTraits ):
     # points or reference position (readonly). Feature may change.
     r0 = Property(desc="array center to grid distances")
 
+    r0mirror = Property(desc="array center to mirror grid distances")
+
     # Sound travel distances from array microphones to grid 
     # points (readonly). Feature may change.
     rm = Property(desc="all array mics to grid distances")
     
+    rmirror = Property(desc="List of rm for mirrorgrids")
+
     # mirror trait for ref
     _ref = Any(array([0.,0.,0.]),
                desc="reference position or distance")
@@ -153,6 +159,20 @@ class SteeringVector( HasPrivateTraits ):
     @property_depends_on('grid.digest, mics.digest, env.digest')
     def _get_rm ( self ):
         return self.env._r(self.grid.pos(), self.mics.mpos)
+
+    def _get_rmirror ( self ):
+        pdb.set_trace()
+        if isinstance(self.grid,GridExtender):
+            rmi = []
+            i=0
+            for mirrgrid in self.grid.mirrgrids:
+                rmtemp = self.env._r(mirrgrid._gpos,self.mics.mpos)
+                rmi.append(rmtemp)
+                i += 1
+            pdb.set_trace()
+            return rmi
+        else:
+            return []
  
     @cached_property
     def _get_digest( self ):
@@ -175,7 +195,7 @@ class SteeringVector( HasPrivateTraits ):
             the given indices will be calculated. Useful for algorithms like CLEAN-SC,
             where not the full transfer matrix is needed
         
-        Returns
+        <Down>
         -------
         array of complex128
             array of shape (ngridpts, nmics) containing the transfer matrix for the given frequency
@@ -217,7 +237,6 @@ class SteeringVector( HasPrivateTraits ):
                 'true location' : lambda x: x / sqrt(einsum('ij,ij->i',x,x.conj()) * x.shape[-1])[:,newaxis]
                 }[self.steer_type]
         return func(self.transfer(f, ind))
-    
     
 class BeamformerBase( HasPrivateTraits ):
     """
