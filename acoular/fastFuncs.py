@@ -9,6 +9,7 @@ computational costs. All functionalities are optimized via NUMBA.
 """
 import numpy as np
 import numba as nb
+import pdb
 
 cachedOption = True  # if True: saves the numba func as compiled func in sub directory
 parallelOption = 'parallel'  # if numba.guvectorize is used: 'CPU' for single threading; 'parallel' for multithreading; 'cuda' for calculating on GPU
@@ -929,6 +930,7 @@ def damasSolverGaussSeidel(A, dirtyMap, nIterations, relax, damasSolution):
 
 #%% Transfer - Function
 def calcTransfer(distGridToArrayCenter, distGridToAllMics, waveNumber):
+    pdb.set_trace()
     """ Calculates the transfer functions between the various mics and gridpoints.
     
     Parameters

@@ -63,7 +63,6 @@ from .microphones import MicGeom
 from .configuration import config
 from .environments import Environment
 from .spectra import PowerSpectra
-from .ism import GridExtender
 import pdb
 
 class SteeringVector( HasPrivateTraits ):
@@ -101,14 +100,10 @@ class SteeringVector( HasPrivateTraits ):
     # points or reference position (readonly). Feature may change.
     r0 = Property(desc="array center to grid distances")
 
-    r0mirror = Property(desc="array center to mirror grid distances")
-
     # Sound travel distances from array microphones to grid 
     # points (readonly). Feature may change.
     rm = Property(desc="all array mics to grid distances")
     
-    rmirror = Property(desc="List of rm for mirrorgrids")
-
     # mirror trait for ref
     _ref = Any(array([0.,0.,0.]),
                desc="reference position or distance")
@@ -160,20 +155,6 @@ class SteeringVector( HasPrivateTraits ):
     def _get_rm ( self ):
         return self.env._r(self.grid.pos(), self.mics.mpos)
 
-    def _get_rmirror ( self ):
-        pdb.set_trace()
-        if isinstance(self.grid,GridExtender):
-            rmi = []
-            i=0
-            for mirrgrid in self.grid.mirrgrids:
-                rmtemp = self.env._r(mirrgrid._gpos,self.mics.mpos)
-                rmi.append(rmtemp)
-                i += 1
-            pdb.set_trace()
-            return rmi
-        else:
-            return []
- 
     @cached_property
     def _get_digest( self ):
         return digest( self )
@@ -437,6 +418,7 @@ class BeamformerBase( HasPrivateTraits ):
         This is the :attr:`result` getter routine.
         The beamforming result is either loaded or calculated.
         """
+        pdb.set_trace()
         f = self.freq_data
         numfreq = f.fftfreq().shape[0]# block_size/2 + 1steer_obj
         _digest = ''
@@ -455,6 +437,7 @@ class BeamformerBase( HasPrivateTraits ):
 #                        print("calculate missing results")                            
                         if config.global_caching == 'readonly': 
                             (ac, fr) = (ac[:], fr[:])
+                        pdb.set_trace()
                         self.calc(ac,fr)
                         self.h5f.flush()
 #                    else:
@@ -534,6 +517,7 @@ class BeamformerBase( HasPrivateTraits ):
         """
         f = self.freq_data.fftfreq()#[inds]
         param_steer_type, steer_vector = self._beamformer_params()
+        pdb.set_trace()
         for i in self.freq_data.indices:
             if not fr[i]:
                 csm = array(self.freq_data.csm[i], dtype='complex128')

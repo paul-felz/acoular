@@ -1,5 +1,6 @@
 # files and file types to ignore
 *.swp
+*.swo
 *.pyc
 *.pyd
 *.so
