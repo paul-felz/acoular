@@ -7,7 +7,7 @@
 """
 
 from numpy import array, zeros, concatenate, delete, where, floor, dot, subtract, \
-pi, complex128, float32, sin, cos
+pi, complex128, float32, sin, cos, isscalar
 
 from traits.api import HasTraits, HasPrivateTraits, Float, Int, ListInt, ListFloat, \
 CArray, Property, Instance, Trait, Bool, Range, Delegate, Enum, Any, \
@@ -22,100 +22,6 @@ from .fbeamform import SteeringVector
 
 import pdb
 
-
-class SteeringVectorRoom( SteeringVector ):
-
-    r0mirror = Property(desc="array center to mirror grid distances")
-
-    rmirror = Property(desc="List of rm for mirror grids")
-
-    steer_vector = Property(desc="calculated Steer-Vector")
-
-    def _get_r0mirror ( self ):
-        if isinstance(self.grid,GridExtender):
-            if isscalar(self.ref) and self.ref > 0:
-                r0i = []
-                for mirrgrid in self.grid.mirrgrids: 
-                    r0temp = full((mirrgrid.size,), self.ref)
-                    r0i.append(r0temp)
-                return r0i
-            else:
-                r0i = []
-                for mirrgrid in self.grid.mirrgrids:
-                    r0temp = self.env._r(mirrgrid._gpos)
-                    r0i.append(r0temp)
-                return r0i
-        else:
-
-            print("Expected GridExtender object!")
-            raise ValueError
-
-    def _get_rmirror ( self ):
-        if isinstance(self.grid,GridExtender):
-            rmi = []
-            for mirrgrid in self.grid.mirrgrids:
-                rmtemp = self.env._r(mirrgrid._gpos,self.mics.mpos)
-                rmi.append(rmtemp)
-            return rmi
-        else:
-            print("Expected GridExtender object!")
-            raise ValueError
- 
-    def transfer_room(self, f, ind=None):
-        if ind is None:
-            transm = 0.0
-            for mirrgrid in self.grid.mirrgrids:
-                transm = transm + calcTransfer(self.r0mirror, self.rmirror, array(2*pi*f/self.env.c))
-            trans = calcTransfer(self.r0, self.rm, array(2*pi*f/self.env.c))
-        elif not isinstance(ind,ndarray):
-            trans = calcTransfer(self.r0[ind], self.rm[ind, :][newaxis], array(2*pi*f/self.env.c))#[0, :]
-        else:
-            trans = calcTransfer(self.r0[ind], self.rm[ind, :], array(2*pi*f/self.env.c))
-        return trans
-
-    def transfer(self, f, ind=None):
-        """
-        Calculates the transfer matrix for one frequency. 
-        
-        Parameters
-        ----------
-        f   : float
-            Frequency for which to calculate the transfer matrix
-        ind : (optional) array of ints
-            If set, only the transfer function of the gridpoints addressed by 
-            the given indices will be calculated. Useful for algorithms like CLEAN-SC,
-            where not the full transfer matrix is needed
-        
-        <Down>
-        -------
-        array of complex128
-            array of shape (ngridpts, nmics) containing the transfer matrix for the given frequency
-        """
-        #if self.cached:
-        #    warn('Caching of transfer function is not yet supported!', Warning)
-        #    self.cached = False
-        
-        if ind is None:
-            trans = calcTransfer(self.r0, self.rm, array(2*pi*f/self.env.c))
-        elif not isinstance(ind,ndarray):
-            trans = calcTransfer(self.r0[ind], self.rm[ind, :][newaxis], array(2*pi*f/self.env.c))#[0, :]
-        else:
-            trans = calcTransfer(self.r0[ind], self.rm[ind, :], array(2*pi*f/self.env.c))
-        return trans
-    
-    def calcIsmSteer_Formulation1AkaClassic_FullCSM(self, distGridToAllMics, waveNumber): 
-        nMics = distGridToAllMics.shape[1]
-        gridPointNum = distGridToAllMics.shape[0]
-        steerVec = zeros((gridPointNum,nMics), complex128)
-        for cntMics in range(nMics):
-            expArg = float32(waveNumber * distGridToAllMics[:,cntMics])
-            steerVec[:,cntMics] = (cos(expArg) - 1j * sin(expArg))
-        print(steerVec.shape) 
-        return steerVec / (nMics)
-
-    def _get_steer_vector(self):
-        def steer_vector(f): return self.calcIsmSteer_Formulation1AkaClassic_FullCSM(self.rm,2*pi*f/self.env.c)
-        return steer_vector
 
 class IsmRoom(SamplesGenerator):
  
@@ -163,7 +69,6 @@ class IsmRoom(SamplesGenerator):
             for wall in self.cuboid.walls:
                 temp = self.clone_traits()
                 temp.source.loc = temp.mirror_loc(wall.n0,wall.point1)
-                #temp.source.signal.seed += 1
                 self.sources.extend([temp.source])
         return self.sources
 
@@ -183,7 +88,7 @@ class IsmRoom(SamplesGenerator):
                 temp1 = next(g)
                 if temp.shape[0] > temp1.shape[0]:
                     temp = temp[:temp1.shape[0]]
-                temp += temp1[:temp.shape[0]]
+                temp += temp1[:temp.shape[0]] #TODO + alpha
             yield temp
             if sh > temp.shape[0]:
                 break
@@ -253,6 +158,120 @@ class GridExtender(Grid):
     def _get_shape ( self ):
         return self.grid.shape
     
+class SteeringVectorRoom( SteeringVector ):
+    
+    cuboid = Instance(Cuboid(),Cuboid)
+
+    r0mirror = Property(desc="array center to mirror grid distances")
+
+    rmirror = Property(desc="List of rm for mirror grids")
+
+    steer_vector = Property(desc="calculated Steer-Vector")
+
+    def _get_r0mirror ( self ):
+        if isinstance(self.grid,GridExtender):
+            if isscalar(self.ref) and self.ref > 0:
+                r0i = []
+                for mirrgrid in self.grid.mirrgrids: 
+                    r0temp = full((mirrgrid.size,), self.ref)
+                    r0i.append(r0temp)
+                return r0i
+            else:
+                r0i = []
+                for mirrgrid in self.grid.mirrgrids:
+                    r0temp = self.env._r(mirrgrid._gpos)
+                    r0i.append(r0temp)
+                return r0i
+        else:
+            raise(TraitError(args=self,
+                            name='r0mirror',
+                            info='SteeringVectorRoom',
+                            value=r0mirror))
+
+    def _get_rmirror ( self ):
+        if isinstance(self.grid,GridExtender):
+            rmi = []
+            for mirrgrid in self.grid.mirrgrids:
+                rmtemp = self.env._r(mirrgrid._gpos,self.mics.mpos)
+                rmi.append(rmtemp)
+            return rmi
+        else:
+            raise(TraitError(args=self,
+                            name='rmirror',
+                            info='SteeringVectorRoom',
+                            value=rmirror))
+ 
+    def transfer_room(self, f, ind=None):
+        if ind is None:
+            transm = 0.0
+            for mirrgrid in self.grid.mirrgrids:
+                transm = transm + calcTransfer(self.r0mirror, self.rmirror, array(2*pi*f/self.env.c))
+            trans = calcTransfer(self.r0, self.rm, array(2*pi*f/self.env.c))
+        elif not isinstance(ind,ndarray):
+            trans = calcTransfer(self.r0[ind], self.rm[ind, :][newaxis], array(2*pi*f/self.env.c))#[0, :]
+        else:
+            trans = calcTransfer(self.r0[ind], self.rm[ind, :], array(2*pi*f/self.env.c))
+        return trans
+
+    def transfer(self, f, ind=None):
+        """
+        Calculates the transfer matrix for one frequency. 
+        
+        Parameters
+        ----------
+        f   : float
+            Frequency for which to calculate the transfer matrix
+        ind : (optional) array of ints
+            If set, only the transfer function of the gridpoints addressed by 
+            the given indices will be calculated. Useful for algorithms like CLEAN-SC,
+            where not the full transfer matrix is needed
+        
+        <Down>
+        -------
+        array of complex128
+            array of shape (ngridpts, nmics) containing the transfer matrix for the given frequency
+        """
+        #if self.cached:
+        #    warn('Caching of transfer function is not yet supported!', Warning)
+        #    self.cached = False
+        
+        if ind is None:
+            trans = calcTransfer(self.r0, self.rm, array(2*pi*f/self.env.c))
+        elif not isinstance(ind,ndarray):
+            trans = calcTransfer(self.r0[ind], self.rm[ind, :][newaxis], array(2*pi*f/self.env.c))#[0, :]
+        else:
+            trans = calcTransfer(self.r0[ind], self.rm[ind, :], array(2*pi*f/self.env.c))
+        return trans
+    
+    def calcSteer_Formulation1AkaClassic_FullCSM(self, distGridToAllMics, waveNumber): 
+        nMics = distGridToAllMics.shape[1]
+        gridPointNum = distGridToAllMics.shape[0]
+        steerVec = zeros((gridPointNum,nMics), complex128)
+        for cntMics in range(nMics):
+            expArg = float32(waveNumber * distGridToAllMics[:,cntMics])
+            steerVec[:,cntMics] = (cos(expArg) - 1j * sin(expArg))
+        return steerVec / (nMics)
+
+    def calcIsmSteer_Formulation1AkaClassic(self, waveNumber): 
+        nMics = self.rm.shape[1]
+        gridPointNum = self.rm.shape[0]
+        steerVec = zeros((gridPointNum,nMics), complex128)
+        for cntMics in range(nMics):
+            expArg = float32(waveNumber * (self.rm[:,cntMics]-self.r0))
+            steerVec[:,cntMics] = (cos(expArg) - 1j * sin(expArg))
+        for mirrNum in range(len(self.grid.mirrgrids)):
+            for cntMics in range(nMics):
+                expArg = float32(waveNumber * (self.rmirror[mirrNum][:,cntMics]-self.r0mirror[mirrNum]))
+                steerVec[:,cntMics] += (1-self.cuboid.walls[mirrNum].alpha) * (cos(expArg) - 1j * sin(expArg))
+        return steerVec / (nMics)
+
+    #def calcIsmSteer_Formulation1AkaClassic(self, waveNumber): 
+        
+
+    def _get_steer_vector(self):
+        def steer_vector(f): return self.calcIsmSteer_Formulation1AkaClassic(2*pi*f/self.env.c)
+        return steer_vector
+
     
 
     """

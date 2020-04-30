@@ -418,7 +418,6 @@ class BeamformerBase( HasPrivateTraits ):
         This is the :attr:`result` getter routine.
         The beamforming result is either loaded or calculated.
         """
-        pdb.set_trace()
         f = self.freq_data
         numfreq = f.fftfreq().shape[0]# block_size/2 + 1steer_obj
         _digest = ''
@@ -437,7 +436,6 @@ class BeamformerBase( HasPrivateTraits ):
 #                        print("calculate missing results")                            
                         if config.global_caching == 'readonly': 
                             (ac, fr) = (ac[:], fr[:])
-                        pdb.set_trace()
                         self.calc(ac,fr)
                         self.h5f.flush()
 #                    else:
@@ -517,7 +515,6 @@ class BeamformerBase( HasPrivateTraits ):
         """
         f = self.freq_data.fftfreq()#[inds]
         param_steer_type, steer_vector = self._beamformer_params()
-        pdb.set_trace()
         for i in self.freq_data.indices:
             if not fr[i]:
                 csm = array(self.freq_data.csm[i], dtype='complex128')
