@@ -77,11 +77,11 @@ from .calib import Calib
 from .trajectory import Trajectory
 from .grids import Grid, RectGrid, RectGrid3D
 from .environments import cartToCyl, cylToCart, Environment, UniformFlowEnvironment, RotatingFlow, \
-FlowField, OpenJet, SlotJet, GeneralFlowEnvironment, \
-Orientation, Wall, WallOrientation, Wall3Points, Cuboid 
+FlowField, OpenJet, SlotJet, GeneralFlowEnvironment
 from .microphones import MicGeom
 from .spectra import PowerSpectra, PowerSpectra as EigSpectra, synthetic
-from .ism import SteeringVectorRoom, IsmRoom, GridExtender
+from .ism import Orientation, Wall, WallHesse, Wall3Points, WallOrientation, Room, \
+Ism, SteeringVectorRoom, GridExtender
 
 from .fbeamform import BeamformerBase, BeamformerCapon, BeamformerEig, \
 BeamformerMusic, BeamformerDamas, BeamformerDamasPlus, BeamformerOrth,BeamformerCleansc, \

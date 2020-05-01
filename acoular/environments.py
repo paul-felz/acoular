@@ -25,8 +25,7 @@ from scipy.integrate import ode
 from scipy.interpolate import LinearNDInterpolator
 from scipy.spatial import ConvexHull
 from traits.api import HasPrivateTraits, Float, Property, Int, \
-CArray, cached_property, Trait, property_depends_on, Tuple, List, Instance
-from enum import Enum
+CArray, cached_property, Trait, property_depends_on
 
 from .internal import digest
 import pdb
@@ -136,137 +135,6 @@ class Environment( HasPrivateTraits ):
         if rm.shape[1] == 1:
             rm = rm[:, 0]
         return rm
-
-class Orientation(Enum):
-    """
-    This represents the orientation of a wall on the xyz plane. //TODO
-    X = Enum(0)
-    Y = Enum(1)
-    Z = Enum(2)
-    """
-    X = 0
-    Y = 1
-    Z = 2
-
-class Wall(HasPrivateTraits):
-
-    alpha = Float(0.0,
-            desc="apsorption coefficient")
-
-    n0 = Property()
-    
-    @property_depends_on('n0')
-    def _get_n0(self):
-        return self.n0
-
-
-class Wall3Points(Wall):
-    """
-    Calculates the Hesse normal form of a wall plane with 3 given points.
-    """
-    point1 = Tuple((0.0,0.0,0.0),
-            desc="point 1 on plane")
-    point2 = Tuple((0.0,0.0,0.0),
-            desc="point 2 on plane")
-    point3 = Tuple((0.0,0.0,0.0),
-            desc="point 3 on plane")
-    
-    u = Property()
-    v = Property()
-    #n0 = Property()
-
-    @property_depends_on('point1,point2')
-    def _get_u(self):
-        return tuple(subtract(self.point2,self.point1))
-
-    @property_depends_on('point1,point3')
-    def _get_v(self):
-        return tuple(subtract(self.point3,self.point1))
-
-    @property_depends_on('u, v')
-    def _get_n0(self):
-        n = cross(self.u,self.v)
-        self.check_valid_points(n)
-        return n/norm(n)
-
-    def check_valid_points(self,n):
-        if all(i == 0 for i in n):
-            print("Points are the same or in one line. This leads to an ambiguous assignement of a plane.")
-            raise ValueError
-
-
-class WallOrientation(Wall):
-    position = Float()
-    orientation = Trait(Orientation)
-
-    point1 = Property()
-    #n0 = Property()
-    
-    @property_depends_on('position, orientation')
-    def _get_point1(self):
-        if self.orientation == Orientation.X:
-            point1 = (self.position,0.0,0.0)
-        elif self.orientation == Orientation.Y:
-            point1 = (0.0, self.position, 0.0)
-        else:
-            point1 = (0.0, 0.0, self.position)
-        return point1
-    
-    @property_depends_on('position, orientation')
-    def _get_n0(self):
-        if self.orientation == Orientation.X:
-            n0 = (1.0,0.0,0.0)
-        elif self.orientation == Orientation.Y:
-            n0 = (0.0,1.0,0.0)
-        else:
-            n0 = (0.0,0.0,1.0)
-        return n0
-
-    """
-    @property_depends_on('position')
-    def _get_position(self):
-        return self.position
-
-    @property_depends_on('orientation')
-    def _get_orientation(self):
-        return self.orientation
-    """
-
-class Cuboid(Environment):
-    """Turns the simple acoustic environment into a more advanced environment of a room in form of a cuboid.
-    """
-    walls = List( Instance(Wall,()) )
-
-
-    def add_wall(self, wall):
-        self.walls.append(wall)
-
-    def create_wall_3points(self, point1, point2, point3, alpha):
-        wall = Wall3Points(point1=point1,point2=point2,point3=point3,alpha=alpha)
-        self.add_wall(wall)
-        return self
-
-    def create_wall_orientation(self, position, orientation,alpha):
-        wall = WallOrientation(position=position, orientation=orientation,alpha=alpha)
-        self.add_wall(wall)
-        return self
-
-
-"""
-    def _r( self, gpos, mpos=0.0):
-        if isscalar(mpos):
-            mpos = array((0, 0, 0), dtype = float32)[:, newaxis]
-            xwall1 = self.xwall1/sqrt((self.xwall1*self.xwall1).sum())
-            mpos = mpos[:, newaxis, :]
-            rmv = gpos[:, :, newaxis]-mpos
-            rm = sqrt(sum(rmv*rmv, 0))
-            macostheta = (self.betax1*sum(rmv.reshape((3, -1))*xwall1[:, newaxis], 0)\
-                         /rm.reshape(-1)).reshape(rm.shape)
-            rm *= 1/(-macostheta + sqrt(macostheta*macostheta-self.ma*self.betax1+1))
-        if rm.shape[1] == 1:
-            rm = rm[:, 0]
-            return rm
-"""
 
 class UniformFlowEnvironment( Environment):
     """
