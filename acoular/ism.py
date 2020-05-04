@@ -258,20 +258,16 @@ class Ism(SamplesGenerator):
 
 class GridExtender(Grid):
     """
-    Reflects grid and extends in list mirrgrids
+    Reflects grid on walls of room and writes them in list mirrgrids
     """
     grid = Instance(Grid(), Grid)
     
     room = Trait(Room,
             desc="room walls")
 
-    mirrgrids = List()
-
-    def __init__(self,grid,room):
-        self.room = room
-        self.grid = grid
-        self._set_mirrgrids()
-        HasTraits.__init__( self )
+    #mirrgrids represent list of arrays with on wall reflected grids
+    mirrgrids = Property(
+            desc="list of reflected grid points")
 
     def mirror_gridpoint(self, n0, basepoint, point):
         d = dot(point,n0) - dot(basepoint,n0)
@@ -280,16 +276,11 @@ class GridExtender(Grid):
         mirr_gridpoint = tuple(mirr_gridpoint)
         return mirr_gridpoint
 
-    def _get_gpos ( self ):
-        return self.grid.gpos
-
+    @property_depends_on('grid, room')
     def _get_mirrgrids( self ):
-        return self.mirrgrids()    
-
-    def _set_mirrgrids( self ):
         gpos = self.grid.pos()
+        mirrgrids = []
         for wall in self.room.walls:
-            temp = self.clone_traits()
             mirr_gpos = zeros([3,gpos.shape[1]])
             for i in range(0,mirr_gpos.shape[1]):
                 gridpoint = (gpos[0,i],gpos[1,i],gpos[2,i])
@@ -297,14 +288,11 @@ class GridExtender(Grid):
                 mirr_gpos[0,i] = gridpoint_mirr[0]
                 mirr_gpos[1,i] = gridpoint_mirr[1]
                 mirr_gpos[2,i] = gridpoint_mirr[2]
-            temp.grid.gpos = mirr_gpos
-            #TODO: new nxsteps size etc
-            self.mirrgrids.extend([temp.grid])
+            mirrgrids.extend([mirr_gpos])
+        return mirrgrids
 
     @property_depends_on('_nxsteps,_nysteps')
     def _get_size(self):
-        #xwallnum = h
-        #size = (xwallnum+1)*self.grid.pos().shape[1]
         return self.grid.size
 
     @property_depends_on('_nxsteps, _nysteps')
