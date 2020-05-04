@@ -28,7 +28,6 @@ from traits.api import HasPrivateTraits, Float, Property, Int, \
 CArray, cached_property, Trait, property_depends_on
 
 from .internal import digest
-import pdb
 
 def cartToCyl(x, Q=identity(3)):
     """
