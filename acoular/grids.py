@@ -168,6 +168,9 @@ class RectGrid( Grid ):
         bpos.resize((3, self.size))
         return bpos
 
+    def _set_gpos ( self, gpos ):
+        self._gpos = gpos
+        return self
 
     def index ( self, x, y ):
         """

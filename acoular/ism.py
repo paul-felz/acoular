@@ -175,13 +175,14 @@ class Ism(SamplesGenerator):
     with negative reflection coefficients adapted by
     E. Lehmann and A. Johansson, "Prediction of energy decay in room impulse responses simulated with an image-source model"
     """
+    #TODO: Don't allow Mixer
     source = Instance(SamplesGenerator(),SamplesGenerator) 
 
     room = Trait(Room,
             desc="room with list of wall planes")
 
     #sources = Property(desc="mirrored sources")
-    sources = List()
+    sources = Property()
 
     sample_freq = Delegate('source','sample_freq') 
 
@@ -189,23 +190,14 @@ class Ism(SamplesGenerator):
 
     numsamples = Delegate('source','numsamples')
 
-    def __init__(self,source,room):
-        self.room = room
-        self.source = source
-        self._set_sources()
-        HasTraits.__init__( self )
-
     def _get_sources(self):
-        return self.sources
-
-    def _set_sources(self):
-        if self.source:     #todo: mixer
-            self.sources = [self.source]
-            for wall in self.room.walls:
-                temp = self.clone_traits()
-                temp.source.loc = temp.mirror_loc(wall.n0,wall.point1)
-                self.sources.extend([temp.source])
-        return self.sources
+        sources = []
+        sources.extend([self.source])
+        for wall in self.room.walls:
+            temp = self.clone_traits()
+            temp.source.loc = temp.mirror_loc(wall.n0,wall.point1)
+            sources.extend([temp.source])
+        return sources
 
                     
     def mirror_loc(self, n0, point1):
@@ -247,9 +239,8 @@ class Ism(SamplesGenerator):
             ind = 0
             for g in gens:
                 temp1 = next(g)
-                beta = -sqrt(1-self.room.walls[ind].alpha)
-                temp += beta + temp1
-                #TODO + second Order reflections
+                beta = sqrt(1-self.room.walls[ind].alpha)
+                temp += beta * temp1
                 ind += 1
             yield temp
             if sh > temp.shape[0]:
@@ -258,7 +249,7 @@ class Ism(SamplesGenerator):
 
 class GridExtender(Grid):
     """
-    Reflects grid on walls of room and writes them in list mirrgrids
+    Reflects grid on walls of room and writes them in list mirrgrids.
     """
     grid = Instance(Grid(), Grid)
     
@@ -267,7 +258,9 @@ class GridExtender(Grid):
 
     #mirrgrids represent list of arrays with on wall reflected grids
     mirrgrids = Property(
-            desc="list of reflected grid points")
+            desc="List of reflected grid points")
+
+    gpos = Delegate('grid','gpos') 
 
     def mirror_gridpoint(self, n0, basepoint, point):
         d = dot(point,n0) - dot(basepoint,n0)
@@ -276,7 +269,8 @@ class GridExtender(Grid):
         mirr_gridpoint = tuple(mirr_gridpoint)
         return mirr_gridpoint
 
-    @property_depends_on('grid, room')
+
+    #@property_depends_on('grid, room')
     def _get_mirrgrids( self ):
         gpos = self.grid.pos()
         mirrgrids = []
@@ -322,7 +316,7 @@ class SteeringVectorRoom( SteeringVector ):
             else:
                 r0i = []
                 for mirrgrid in self.grid.mirrgrids:
-                    r0temp = self.env._r(mirrgrid._gpos)
+                    r0temp = self.env._r(mirrgrid)
                     r0i.append(r0temp)
                 return r0i
         else:
@@ -335,7 +329,7 @@ class SteeringVectorRoom( SteeringVector ):
         if isinstance(self.grid,GridExtender):
             rmi = []
             for mirrgrid in self.grid.mirrgrids:
-                rmtemp = self.env._r(mirrgrid._gpos,self.mics.mpos)
+                rmtemp = self.env._r(mirrgrid,self.mics.mpos)
                 rmi.append(rmtemp)
             return rmi
         else:
@@ -401,11 +395,13 @@ class SteeringVectorRoom( SteeringVector ):
         steerVec = zeros((gridPointNum,nMics), complex128)
         for cntMics in range(nMics):
             expArg = float32(waveNumber * (self.rm[:,cntMics]-self.r0))
-            steerVec[:,cntMics] = (cos(expArg) - 1j * sin(expArg))
+            Argd =  (self.r0/self.rm[:,cntMics])*(cos(expArg) - 1j * sin(expArg))
+            steerVec[:,cntMics] = Argd/abs(Argd)
         for mirrNum in range(len(self.grid.mirrgrids)):
             for cntMics in range(nMics):
                 expArg = float32(waveNumber * (self.rmirror[mirrNum][:,cntMics]-self.r0mirror[mirrNum]))
-                steerVec[:,cntMics] += (1-self.room.walls[mirrNum].alpha) * (cos(expArg) - 1j * sin(expArg))
+                Argd = (self.r0mirror[mirrNum]/self.rmirror[mirrNum][:,cntMics])*(cos(expArg) - 1j * sin(expArg))
+                steerVec[:,cntMics] += (1-self.room.walls[mirrNum].alpha) * Argd/abs(Argd)
         return steerVec / (nMics)
 
     #def calcIsmSteer_Formulation1AkaClassic(self, waveNumber): 
