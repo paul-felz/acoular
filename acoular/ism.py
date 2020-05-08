@@ -7,7 +7,8 @@
 """
 
 from numpy import array, zeros, concatenate, delete, where, floor, dot, subtract, \
-pi, complex128, float32, sin, cos, isscalar, cross, sqrt
+pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
+ndarray
 from numpy.linalg.linalg import norm
 
 from traits.api import HasTraits, HasPrivateTraits, Float, Int, ListInt, ListFloat, \
@@ -21,6 +22,8 @@ from .grids import Grid, RectGrid
 from .environments import Environment
 from .microphones import MicGeom
 from .fbeamform import SteeringVector
+
+from .fastFuncs import calcTransfer
 
 from enum import Enum
 import pdb
@@ -251,6 +254,10 @@ class GridExtender(Grid):
     """
     Reflects grid on walls of room and writes them in list mirrgrids.
     """
+    #TODO
+    #Call from Steering Vector Room
+    #doesn't need to be necessarily an extra unit in script
+
     grid = Instance(Grid(), Grid)
     
     room = Trait(Room,
@@ -337,18 +344,11 @@ class SteeringVectorRoom( SteeringVector ):
                             name='rmirror',
                             info='SteeringVectorRoom',
                             value=rmirror))
- 
-    def transfer_room(self, f, ind=None):
-        if ind is None:
-            transm = 0.0
-            for mirrgrid in self.grid.mirrgrids:
-                transm = transm + calcTransfer(self.r0mirror, self.rmirror, array(2*pi*f/self.env.c))
-            trans = calcTransfer(self.r0, self.rm, array(2*pi*f/self.env.c))
-        elif not isinstance(ind,ndarray):
-            trans = calcTransfer(self.r0[ind], self.rm[ind, :][newaxis], array(2*pi*f/self.env.c))#[0, :]
-        else:
-            trans = calcTransfer(self.r0[ind], self.rm[ind, :], array(2*pi*f/self.env.c))
-        return trans
+
+    def transfer_mirror(self,transm):
+        for mirrNum in range(len(self.grid.mirrgrids)):
+            transm += (1-self.room.walls[mirrNum].alpha) * calcTransfer(self.r0mirror[mirrNum],self.rmirror[mirrNum],array(2*pi*f/self.env.c))
+        return transm
 
     def transfer(self, f, ind=None):
         """
@@ -374,40 +374,41 @@ class SteeringVectorRoom( SteeringVector ):
         
         if ind is None:
             trans = calcTransfer(self.r0, self.rm, array(2*pi*f/self.env.c))
+            for mirrNum in range(len(self.grid.mirrgrids)):
+                trans += sqrt(1-self.room.walls[mirrNum].alpha) * calcTransfer(self.r0mirror[mirrNum],self.rmirror[mirrNum],array(2*pi*f/self.env.c))
         elif not isinstance(ind,ndarray):
             trans = calcTransfer(self.r0[ind], self.rm[ind, :][newaxis], array(2*pi*f/self.env.c))#[0, :]
+            for mirrNum in range(len(self.grid.mirrgrids)):
+                trans += sqrt(1-self.room.walls[mirrNum].alpha) * calcTransfer(self.r0mirror[mirrNum][ind],self.rmirror[mirrNum][ind,:][newaxis],array(2*pi*f/self.env.c))
         else:
             trans = calcTransfer(self.r0[ind], self.rm[ind, :], array(2*pi*f/self.env.c))
+            for mirrNum in range(len(self.grid.mirrgrids)):
+                trans += sqrt(1-self.room.walls[mirrNum].alpha) * calcTransfer(self.r0mirror[mirrNum][ind],self.rmirror[mirrNum][ind,:],array(2*pi*f/self.env.c))
         return trans
-    
-    def calcSteer_Formulation1AkaClassic_FullCSM(self, distGridToAllMics, waveNumber): 
-        nMics = distGridToAllMics.shape[1]
-        gridPointNum = distGridToAllMics.shape[0]
-        steerVec = zeros((gridPointNum,nMics), complex128)
-        for cntMics in range(nMics):
-            expArg = float32(waveNumber * distGridToAllMics[:,cntMics])
-            steerVec[:,cntMics] = (cos(expArg) - 1j * sin(expArg))
-        return steerVec / (nMics)
 
-    def calcIsmSteer_Formulation1AkaClassic(self, waveNumber): 
-        nMics = self.rm.shape[1]
-        gridPointNum = self.rm.shape[0]
-        steerVec = zeros((gridPointNum,nMics), complex128)
-        for cntMics in range(nMics):
-            expArg = float32(waveNumber * (self.rm[:,cntMics]-self.r0))
-            Argd =  (self.r0/self.rm[:,cntMics])*(cos(expArg) - 1j * sin(expArg))
-            steerVec[:,cntMics] = Argd/abs(Argd)
-        for mirrNum in range(len(self.grid.mirrgrids)):
-            for cntMics in range(nMics):
-                expArg = float32(waveNumber * (self.rmirror[mirrNum][:,cntMics]-self.r0mirror[mirrNum]))
-                Argd = (self.r0mirror[mirrNum]/self.rmirror[mirrNum][:,cntMics])*(cos(expArg) - 1j * sin(expArg))
-                steerVec[:,cntMics] += (1-self.room.walls[mirrNum].alpha) * Argd/abs(Argd)
-        return steerVec / (nMics)
-
-    #def calcIsmSteer_Formulation1AkaClassic(self, waveNumber): 
+    def steer_vector(self, f, ind=None):
+        """
+        Calculates the steering vectors based on the transfer function
+        See also :ref:`Sarradj, 2012<Sarradj2012>`.
         
-
-    def _get_steer_vector(self):
-        def steer_vector(f): return self.calcIsmSteer_Formulation1AkaClassic(2*pi*f/self.env.c)
-        return steer_vector
+        Parameters
+        ----------
+        f   : float
+            Frequency for which to calculate the transfer matrix
+        ind : (optional) array of ints
+            If set, only the steering vectors of the gridpoints addressed by 
+            the given indices will be calculated. Useful for algorithms like CLEAN-SC,
+            where not the full transfer matrix is needed
+        
+        Returns
+        -------
+        array of complex128
+            array of shape (ngridpts, nmics) containing the steering vectors for the given frequency
+        """
+        func = {'classic' : lambda x: x / absolute(x) / x.shape[-1],
+                'inverse' : lambda x: 1. / x.conj() / x.shape[-1],
+                'true level' : lambda x: x / einsum('ij,ij->i',x,x.conj())[:,newaxis],
+                'true location' : lambda x: x / sqrt(einsum('ij,ij->i',x,x.conj()) * x.shape[-1])[:,newaxis]
+                }[self.steer_type]
+        return func(self.transfer(f, ind))
 
