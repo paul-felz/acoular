@@ -6,10 +6,11 @@
     Ism
 """
 
-from numpy import array, zeros, concatenate, delete, where, floor, dot, subtract, \
+from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
-ndarray
+ndarray, rint, convolve, empty, int64
 from numpy.linalg.linalg import norm
+from scipy import signal
 
 from traits.api import HasTraits, HasPrivateTraits, Float, Int, ListInt, ListFloat, \
 CArray, Property, Instance, Trait, Bool, Range, Delegate, Enum, Any, \
@@ -22,6 +23,7 @@ from .grids import Grid, RectGrid
 from .environments import Environment
 from .microphones import MicGeom
 from .fbeamform import SteeringVector
+from .signals import SignalGenerator
 
 from .fastFuncs import calcTransfer
 
@@ -171,7 +173,9 @@ class Room(Environment):
         return self
 
 
-class Ism(SamplesGenerator):
+
+
+class IsmRealImages(SamplesGenerator):
     """
     Mirrors the source on walls of room and writes them to the list sources.
     J. Allen and D. Berkeley, "Image method for efficiently simulating small-room acoustics"
@@ -220,7 +224,7 @@ class Ism(SamplesGenerator):
         n02d = tuple(2*d*x for x in n0)
         mirror_loc = subtract(self.source.loc,n02d)
         mirror_loc = tuple(mirror_loc)
-        return mirror_loc
+        return mirror_loc    
 
     def result(self,num):
         """
@@ -248,6 +252,271 @@ class Ism(SamplesGenerator):
             yield temp
             if sh > temp.shape[0]:
                 break
+
+class PointSourceIsm( SamplesGenerator ):
+    """
+    Class to define a fixed point source with an arbitrary signal.
+    This can be used in simulations.
+    
+    The output is being generated via the :meth:`result` generator.
+    """
+    
+    #:  Emitted signal, instance of the :class:`~acoular.signals.SignalGenerator` class.
+    signal = Trait(SignalGenerator)
+    
+    #: Location of source in (`x`, `y`, `z`) coordinates (left-oriented system).
+    loc = Tuple((0.0, 0.0, 1.0),
+        desc="source location")
+               
+    room = Trait(Room,
+            desc="room with list of wall planes")
+
+    ism = Trait(Ism(),Ism)
+
+    #: Number of channels in output, is set automatically / 
+    #: depends on used microphone geometry.
+    numchannels = Delegate('mics', 'num_mics')
+
+
+    #: :class:`~acoular.microphones.MicGeom` object that provides the microphone locations.
+    mics = Trait(MicGeom, 
+        desc="microphone geometry")
+    
+    #: :class:`~acoular.environments.Environment` or derived object, 
+    #: which provides information about the sound propagation in the medium.
+    env = Trait(Environment(), Environment)
+
+    # --- List of backwards compatibility traits and their setters/getters -----------
+
+    # Microphone locations.
+    # Deprecated! Use :attr:`mics` trait instead.
+    mpos = Property()
+    
+    def _get_mpos(self):
+        return self.mics
+    
+    def _set_mpos(self, mpos):
+        warn("Deprecated use of 'mpos' trait. ", Warning, stacklevel = 2)
+        self.mics = mpos
+        
+    # The speed of sound.
+    # Deprecated! Only kept for backwards compatibility. 
+    # Now governed by :attr:`env` trait.
+    c = Property()
+    
+    def _get_c(self):
+        return self.env.c
+    
+    def _set_c(self, c):
+        warn("Deprecated use of 'c' trait. ", Warning, stacklevel = 2)
+        self.env.c = c
+
+    # --- End of backwards compatibility traits --------------------------------------
+        
+    #: Start time of the signal in seconds, defaults to 0 s.
+    start_t = Float(0.0,
+        desc="signal start time")
+    
+    #: Start time of the data aquisition at microphones in seconds, 
+    #: defaults to 0 s.
+    start = Float(0.0,
+        desc="sample start time")
+
+    #: Upsampling factor, internal use, defaults to 16.
+    up = Int(16, 
+        desc="upsampling factor")        
+    
+    #: Number of samples, is set automatically / 
+    #: depends on :attr:`signal`.
+    numsamples = Delegate('signal')
+    
+    #: Sampling frequency of the signal, is set automatically / 
+    #: depends on :attr:`signal`.
+    sample_freq = Delegate('signal') 
+
+    """
+    # internal identifier
+    digest = Property( 
+        depends_on = ['mics.digest', 'signal.digest', 'loc', \
+         'env.digest', 'start_t', 'start', 'up', '__class__'], 
+        )
+               
+    @cached_property
+    def _get_digest( self ):
+        return digest(self)
+    """
+
+    def result(self, num=128):
+        """
+        Python generator that yields the output at microphones block-wise.
+                
+        Parameters
+        ----------
+        num : integer, defaults to 128
+            This parameter defines the size of the blocks to be yielded
+            (i.e. the number of samples per block) .
+        
+        Returns
+        -------
+        Samples in blocks of shape (num, numchannels). 
+            The last block may be shorter than num.
+        """
+        
+   
+        signal = self.signal.usignal(self.up)
+        out = empty((num, self.numchannels))
+        # distances
+        #rm = self.env._r(array(self.loc).reshape((3, 1)), self.mics.mpos)
+        # emission time relative to start_t (in samples) for first sample
+        #ind = (-rm/self.env.c-self.start_t+self.start)*self.sample_freq   
+        #ind_max = abs(ind).max(1)
+        i = 0
+        n = self.numsamples 
+        while n:
+            n -= 1
+            try:
+                out[i] = signal[array(0.5+self.up, dtype=int64)]
+                #ind += 1.
+                i += 1
+                if i == num:
+                    yield out
+                    i = 0
+            except IndexError: #if no more samples available from the source
+                break
+        if i > 0: # if there are still samples to yield
+            yield out[:i]         
+
+class Ism(SamplesGenerator):
+    """
+    Mirrors the source on walls of room and writes them to the list sources.
+    J. Allen and D. Berkeley, "Image method for efficiently simulating small-room acoustics"
+    with negative reflection coefficients adapted by
+    E. Lehmann and A. Johansson, "Prediction of energy decay in room impulse responses simulated with an image-source model"
+    """
+    #TODO: Don't allow Mixer
+    source = Instance(SamplesGenerator(),SamplesGenerator) 
+
+    room = Trait(Room,
+            desc="room with list of wall planes")
+
+    mics = Trait(MicGeom,
+            desc="microphone geometry")
+    
+    env = Instance(Environment(), Environment)
+
+    rp = Property()
+
+    #Better delegate from mics??? Test it!
+    sample_freq = Delegate('source','sample_freq') 
+
+    numchannels = Delegate('source','numchannels')
+
+    numsamples = Delegate('source','numsamples')
+
+    def _get_rp(self):
+        """
+        x_p = (1-2*q)*self.source.loc[0]
+        y_p = (1-2*j)*self.source.loc[1]
+        z_p = (1-2*k)*self.source.loc[2]
+        mirror_loc = array([[x_p], [y_p], [z_p]])
+        """
+        rp = []
+        for wall in self.room.walls:
+            mirror_loc = self.mirror_loc(wall.n0,wall.point1)
+            rp = array([[mirror_loc[0]],[mirror_loc[1]],[mirror_loc[2]]])
+            #exclude
+            #rptemp = self.env._r(mirror_loc,self.mics.mpos)
+            #rp.append(rptemp)
+        return rp
+
+    def plane_distance(self,point,planepoint,n0):
+        """
+        Calculates the distance from a point to a plane in hesse normal form.
+        The calculated distance is with regard to the orientation of n0 positive or negative.
+        """
+        return dot(point,n0)-dot(planepoint,n0)
+
+    def mirror_loc(self, n0, point1):
+        """
+        Reflects and returns the location of a source on the backside of a wall.
+
+        Parameters
+        ----------
+        n0: normal vector of wall plane
+        point1: base point of wall plane
+
+        Returns
+        -------
+        tuple of reflected loc
+        """
+        d = self.plane_distance(self.source.loc,point1,n0)
+        n02d = tuple(2*d*x for x in n0)
+        mirror_loc = subtract(self.source.loc,n02d)
+        mirror_loc = tuple(mirror_loc)
+        return mirror_loc    
+    
+    """"
+    def calc_tau(self,loc):
+        d = self.env._r(loc, 
+        return d/self.env.c
+    
+    """
+    def impulse_response(self,num):
+        """
+        tau1 = calc_tau(self.source.loc)
+        tau2 = calc_tau(self.rp)
+        """
+        mirror_loc = self.mirror_loc(self.room.walls[0].n0,self.room.walls[0].point1)
+        #travel distance
+        rm = self.env._r(array(mirror_loc).reshape((3,1)), self.mics.mpos)
+        #travel time
+        tm = (rm/self.env.c)*self.sample_freq
+        ind = tm+((self.source.start_t-self.source.start)*self.sample_freq)
+        amp = 1/rm
+        h = zeros((num, self.numchannels))
+        ind = rint(ind)
+        ind = ind.astype(int)
+        for i in range(0,ind.shape[1]):
+            h[ind[0,i],i] = amp[0,i]
+            i += 1
+        return h
+
+    def result(self,num):
+        #gens = [i.result(num) for i in self.sources[1:]]
+        for temp in self.source.result(num):
+            sh = temp.shape[0]
+            breakpoint()
+            """
+            h = self.impulse_response_refl(num)
+            for i in range temp
+            temp = convolve(h
+            breakpoint()
+            """
+            #ind = 0
+            """
+            for g in gens:
+                temp1 = next(g)
+                beta = sqrt(1-self.room.walls[ind].alpha)
+                temp += beta * temp1
+                ind += 1
+            """
+            yield temp
+            if sh > temp.shape[0]:
+                break
+
+"""
+class RectAngleRoom(Ism):
+
+    def calc_rm(self, mn01, mn02, mn03):
+        for wall in self.room.walls:
+            pdb.set_trace()
+            for i in range(self.mics.mpos.shape[-1]):
+                pdb.set_trace()
+                dw = self.plane_distance(self.mics.mpos[...,i],wall.point1,wall.n0)
+                n02dw = tuple(2*dw*x for x in n0)
+                rm = 
+        return rm
+"""
 
 
 class GridExtender(Grid):
