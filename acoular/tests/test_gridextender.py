@@ -1,7 +1,9 @@
 """
-Verification Test 2 for Image Source Method
+Verification Test 4 for Image Source Method
 
-Generate walls and check for mirror sources at right places.
+Generate a wall and a grid and check if the mirror grid is at right place.
+
+@author: paul-felz
 """
 
 from os import path

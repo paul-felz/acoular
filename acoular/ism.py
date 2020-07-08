@@ -353,24 +353,33 @@ class Ism(SamplesGenerator):
     
     """
     def impulse_response(self,loc,numsamples,sample_freq,up):
+        hdirect = self.impulse_response_direct(loc,numsamples,sample_freq,up)
+        #hreflect = self.impulse_response_reflect()
+        h = hdirect
+        return h
+
+    def impulse_response_direct(self,loc,numsamples,sample_freq,up):
         #mirror_loc = self.mirror_loc(self.room.walls[0].n0,self.room.walls[0].point1)
         #travel distance
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
         #travel time
         ind = (rm/self.env.c)*sample_freq*up
-        ind_max = rint(ind).max(1)[0]
+        ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)
         num = numsamples*up + ind_max
         amp = 1/rm
         h = zeros((num, self.numchannels))
-        ind = rint(ind)
-        ind = ind.astype(int)
-        for i in range(0,ind.shape[1]):
-            h[ind[0,i],i] = amp[0,i]
-            i += 1
+        ind = array(0.5+ind,dtype=int64)
+        if ind.size == 1:
+            h[ind[0],0] = amp[0]
+        else:
+            for i in range(0,ind.size):
+                h[ind[0,i],i] = amp[0,i]
         return h
 
+
     def result(self,num):
+        breakpoint()
         pass
 
 class PointSourceIsm(Ism):
@@ -454,7 +463,7 @@ class PointSourceIsm(Ism):
         while n:
             n -= 1
             try:
-                out[i] = y[array(0.5+ind*self.up, dtype=int64)]
+                out[i] = y[ind*self.up,:]
                 #((self.source.start_t-self.source.start)*sample_freq)
 
                 i += 1

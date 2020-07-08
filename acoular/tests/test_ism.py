@@ -2,13 +2,14 @@
 
 Generate walls and check for mirror sources at right places.
 
+@author: paul-felz
 """
 
 from os import path
 
 import unittest
 
-from acoular import __file__ as bpath, config, MicGeom, WNoiseGenerator, PointSource, Room, Ism
+from acoular import __file__ as bpath, config, MicGeom, WNoiseGenerator, PointSource, Room, IsmRealImages
 
 from numpy import sqrt
 config.global_caching = "none"
@@ -28,7 +29,7 @@ onewall= Room()
 onewall.create_wall_hesse(point1=(1.0,1.0,1.0),n0=(1/sqrt(3),1/sqrt(3),1/sqrt(3)),alpha=0.0)
 
 #Create mirror source behind wall
-ism = Ism(source=p1,room=onewall)
+ism = IsmRealImages(source=p1,room=onewall)
 
 #Reference Values
 original = [0.3,0.3,0.3]

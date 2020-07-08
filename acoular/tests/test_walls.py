@@ -2,6 +2,7 @@
 
 Generate 3 Walls with different Classmethods and check their attributes.
 
+@author: paul-felz
 """
 
 from os import path
