@@ -460,19 +460,27 @@ class PointSourceIsm(Ism):
         #ind_max = abs(ind).max(1)
         i = 0
         ind = 0
-        n = y.shape[0] 
+        ts = self.start_t*self.sample_freq
+        tm = self.start
+        tm = rint(tm).astype(int)
+        n = y.shape[0] + self.start_t
         while n:
             n -= 1
-            try:
-                tgap = rint((self.start_t-self.start)*self.sample_freq).astype(int)
-                out[i] = y[ind*self.up+tgap,:]
-                i += 1
-                ind += 1
-                if i == num:
-                    yield out
-                    i = 0
-            except IndexError: #if no more samples available from the source
-                break
+            if ts>0:
+                out[i]=0.0
+                if tm>0:
+                    tm-=1
+                ts-=1
+            else:
+                try:
+                    out[i] = y[ind*self.up+tm,:]
+                    i += 1
+                    ind += 1
+                    if i == num:
+                        yield out
+                        i = 0
+                except IndexError: #if no more samples available from the source
+                    break
         if i > 0: # if there are still samples to yield
             yield out[:i]         
 """
