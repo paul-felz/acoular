@@ -24,6 +24,7 @@ from .environments import Environment
 from .microphones import MicGeom
 from .fbeamform import SteeringVector
 from .signals import SignalGenerator
+from .trajectory import Trajectory
 
 from .fastFuncs import calcTransfer
 
@@ -463,9 +464,8 @@ class PointSourceIsm(Ism):
         while n:
             n -= 1
             try:
-                out[i] = y[ind*self.up,:]
-                #((self.source.start_t-self.source.start)*sample_freq)
-
+                tgap = rint((self.start_t-self.start)*self.sample_freq).astype(int)
+                out[i] = y[ind*self.up+tgap,:]
                 i += 1
                 ind += 1
                 if i == num:
@@ -489,6 +489,88 @@ class RectAngleRoom(Ism):
         return rm
 """
 
+class MovingPointSource( PointSource ):
+    """
+    Class to define a point source with an arbitrary 
+    signal moving along a given trajectory.
+    This can be used in simulations.
+    
+    The output is being generated via the :meth:`result` generator.
+    """
+
+    #: Trajectory of the source, 
+    #: instance of the :class:`~acoular.trajectory.Trajectory` class.
+    #: The start time is assumed to be the same as for the samples.
+    trajectory = Trait(Trajectory, 
+        desc="trajectory of the source")
+
+    # internal identifier
+    digest = Property( 
+        depends_on = ['mics.digest', 'signal.digest', 'loc', \
+         'env.digest', 'start_t', 'start', 'trajectory.digest', '__class__'], 
+        )
+               
+    @cached_property
+    def _get_digest( self ):
+        return digest(self)
+
+    def result(self, num=128):
+        """
+        Python generator that yields the output at microphones block-wise.
+                
+        Parameters
+        ----------
+        num : integer, defaults to 128
+            This parameter defines the size of the blocks to be yielded
+            (i.e. the number of samples per block).
+        
+        Returns
+        -------
+        Samples in blocks of shape (num, numchannels). 
+            The last block may be shorter than num.
+        """   
+        #If signal samples are needed for te < t_start, then samples are taken
+        #from the end of the calculated signal.
+        
+        signal = self.signal.usignal(self.up)
+        out = empty((num, self.numchannels))
+        # shortcuts and intial values
+        m = self.mics
+        t = self.start*ones(m.num_mics)
+        i = 0
+        epslim = 0.1/self.up/self.sample_freq
+        c0 = self.env.c
+        tr = self.trajectory
+        n = self.numsamples
+        while n:
+            n -= 1
+            eps = ones(m.num_mics)
+            te = t.copy() # init emission time = receiving time
+            j = 0
+            # Newton-Rhapson iteration
+            while abs(eps).max()>epslim and j<100:
+                loc = array(tr.location(te))
+                rm = loc-m.mpos# distance vectors to microphones
+                rm = sqrt((rm*rm).sum(0))# absolute distance
+                loc /= sqrt((loc*loc).sum(0))# distance unit vector
+                der = array(tr.location(te, der=1))
+                Mr = (der*loc).sum(0)/c0# radial Mach number
+                eps = (te + rm/c0 - t)/(1+Mr)# discrepancy in time 
+                te -= eps
+                j += 1 #iteration count
+            t += 1./self.sample_freq
+            # emission time relative to start time
+            ind = (te-self.start_t+self.start)*self.sample_freq
+            try:
+                out[i] = signal[array(0.5+ind*self.up, dtype=int64)]/rm
+                i += 1
+                if i == num:
+                    yield out
+                    i = 0
+            except IndexError: #if no more samples available from the source 
+                break
+        if i > 0: # if there are still samples to yield
+            yield out[:i]
 
 class GridExtender(Grid):
     """
