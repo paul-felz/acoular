@@ -8,7 +8,7 @@
 
 from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
-ndarray, rint, empty, int64
+ndarray, rint, empty, int64, ones
 from numpy.linalg.linalg import norm
 from scipy import signal as sig
 
@@ -353,13 +353,13 @@ class Ism(SamplesGenerator):
         return d/self.env.c
     
     """
-    def impulse_response(self,loc,numsamples,sample_freq,up):
-        hdirect = self.impulse_response_direct(loc,numsamples,sample_freq,up)
+    def impulse_response(self,loc,sample_freq,up):
+        hdirect = self.impulse_response_direct(loc,sample_freq,up)
         #hreflect = self.impulse_response_reflect()
         h = hdirect
         return h
 
-    def impulse_response_direct(self,loc,numsamples,sample_freq,up):
+    def impulse_response_direct(self,loc,sample_freq,up):
         #mirror_loc = self.mirror_loc(self.room.walls[0].n0,self.room.walls[0].point1)
         #travel distance
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
@@ -367,9 +367,10 @@ class Ism(SamplesGenerator):
         ind = (rm/self.env.c)*sample_freq*up
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)
-        num = numsamples*up + ind_max
+        #num = numsamples*up + ind_max
         amp = 1/rm
-        h = zeros((num, self.numchannels))
+        #h = zeros((num, self.numchannels))
+        h = zeros((ind_max+1, self.numchannels))
         ind = array(0.5+ind,dtype=int64)
         if ind.size == 1:
             h[ind[0],0] = amp[0]
@@ -448,11 +449,11 @@ class PointSourceIsm(Ism):
         """
         signal = self.signal.usignal(self.up)
         out = zeros((num, self.numchannels))
-        h = self.impulse_response(self.loc,self.numsamples, self.sample_freq,self.up)
-        y = empty((h.shape[0],self.numchannels))
+        h = self.impulse_response(self.loc, self.sample_freq,self.up)
+        ylen = self.numsamples*self.up+h.shape[0]
+        y = empty((ylen-1,self.numchannels))
         for j in range(0,self.numchannels):
-            c = sig.convolve(signal,h[:,j])
-            y[:,j] = c[:h.shape[0]]
+            y[:,j] = sig.convolve(signal,h[:,j])
         # distances
         #rm = self.env._r(array(self.loc).reshape((3, 1)), self.mics.mpos)
         # emission time relative to start_t (in samples) for first sample
@@ -467,9 +468,10 @@ class PointSourceIsm(Ism):
         while n:
             n -= 1
             if ts>0:
-                out[i]=0.0
                 if tm>0:
                     tm-=1
+                else:
+                    out[i]=0.0
                 ts-=1
             else:
                 try:
@@ -497,7 +499,7 @@ class RectAngleRoom(Ism):
         return rm
 """
 
-class MovingPointSource( PointSource ):
+class MovingPointSourceIsm( PointSourceIsm ):
     """
     Class to define a point source with an arbitrary 
     signal moving along a given trajectory.
@@ -542,13 +544,21 @@ class MovingPointSource( PointSource ):
         
         signal = self.signal.usignal(self.up)
         out = empty((num, self.numchannels))
+        tr = self.trajectory
+        #last location on trajectory
+        loc_end = tr.location(self.numsamples/self.sample_freq)
+        h = self.impulse_response(loc_end,self.numsamples, self.sample_freq,self.up)
+
+        y = empty((h.shape[0],self.numchannels))
+        for j in range(0,self.numchannels):
+            c = sig.convolve(signal,h[:,j])
+            y[:,j] = c[:h.shape[0]]
         # shortcuts and intial values
         m = self.mics
         t = self.start*ones(m.num_mics)
         i = 0
         epslim = 0.1/self.up/self.sample_freq
         c0 = self.env.c
-        tr = self.trajectory
         n = self.numsamples
         while n:
             n -= 1
@@ -559,13 +569,20 @@ class MovingPointSource( PointSource ):
             while abs(eps).max()>epslim and j<100:
                 loc = array(tr.location(te))
                 rm = loc-m.mpos# distance vectors to microphones
+                breakpoint()
                 rm = sqrt((rm*rm).sum(0))# absolute distance
+                breakpoint()
                 loc /= sqrt((loc*loc).sum(0))# distance unit vector
                 der = array(tr.location(te, der=1))
                 Mr = (der*loc).sum(0)/c0# radial Mach number
                 eps = (te + rm/c0 - t)/(1+Mr)# discrepancy in time 
+                breakpoint()
                 te -= eps
                 j += 1 #iteration count
+            #pseudo
+            #h = zeros[max(rm+numsamples)]
+            #h[te] = 1/rm
+            #signal = conv(signal,h)
             t += 1./self.sample_freq
             # emission time relative to start time
             ind = (te-self.start_t+self.start)*self.sample_freq
