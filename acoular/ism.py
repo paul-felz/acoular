@@ -8,7 +8,7 @@
 
 from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
-ndarray, rint, empty, int64, ones
+ndarray, rint, empty, int64, ones, append, floor
 from numpy.linalg.linalg import norm
 from scipy import signal as sig
 
@@ -381,7 +381,6 @@ class Ism(SamplesGenerator):
 
 
     def result(self,num):
-        breakpoint()
         pass
 
 class PointSourceIsm(Ism):
@@ -462,9 +461,10 @@ class PointSourceIsm(Ism):
         i = 0
         ind = 0
         ts = self.start_t*self.sample_freq
-        tm = self.start
+        ts = rint(ts).astype(int)
+        tm = self.start*self.sample_freq
         tm = rint(tm).astype(int)
-        n = y.shape[0] + self.start_t
+        n = y.shape[0]/self.up + ts
         while n:
             n -= 1
             if ts>0:
@@ -472,10 +472,14 @@ class PointSourceIsm(Ism):
                     tm-=1
                 else:
                     out[i]=0.0
+                    i+=1
+                    if i == num:
+                        yield out
+                        i = 0
                 ts-=1
             else:
                 try:
-                    out[i] = y[ind*self.up+tm,:]
+                    out[i] = y[(ind+tm)*self.up,:]
                     i += 1
                     ind += 1
                     if i == num:
@@ -524,6 +528,59 @@ class MovingPointSourceIsm( PointSourceIsm ):
     def _get_digest( self ):
         return digest(self)
 
+    def impulse_response(self,epslim,t):
+        hdirect = self.impulse_response_direct(epslim,t)
+        #hreflect = self.impulse_response_reflect()
+        h = hdirect
+        return h
+
+    def impulse_response_direct(self,epslim,t):
+        #mirror_loc = self.mirror_loc(self.room.walls[0].n0,self.room.walls[0].point1)
+        #travel distance
+        te, rm = self.delay_distance_movingsource(epslim,t)
+        print("rm: ",rm[0])
+        #travel time
+        #ind = te*self.sample_freq
+        ind2 = (rm/self.env.c)*self.sample_freq
+        ind = abs(te-t)*self.sample_freq
+        print("max(ind)",max(abs(ind)))
+        print("ind: ",ind[0])
+        print("rmt: ",ind2[0])
+        ind_max = rint(ind).max()
+        ind_max = ind_max.astype(int)
+        #num = numsamples*up + ind_max
+        amp = 1/rm
+        #h = zeros((num, self.numchannels))
+        h = zeros((ind_max+1, self.numchannels))
+        ind = array(0.5+ind,dtype=int64)
+        if ind.size == 1:
+            h[ind[0],0] = amp[0]
+        else:
+            for i in range(0,ind.size):
+                h[ind[i],i] = amp[i]
+        return h
+    
+    def delay_distance_movingsource(self,epslim,t):
+        j = 0
+        eps = ones(self.mics.num_mics)
+        te = t.copy() # init emission time = receiving time
+        loc = array(self.trajectory.location(te))
+        rm = loc-self.mics.mpos# distance vectors to microphones
+        rm = sqrt((rm*rm).sum(0))# absolute distance
+        loc /= sqrt((loc*loc).sum(0))# distance unit vector
+        # Newton-Rhapson iteration
+        while abs(eps).max()>epslim and j<100:
+            der = array(self.trajectory.location(te, der=1))
+            Mr = (der*loc).sum(0)/self.env.c# radial Mach number
+            eps = (te + rm/self.env.c-t)/(1+Mr)# discrepancy in time 
+            te -= eps
+            j += 1 #iteration count
+            loc = array(self.trajectory.location(te))
+            rm = loc-self.mics.mpos# distance vectors to microphones
+            rm = sqrt((rm*rm).sum(0))# absolute distance
+            loc /= sqrt((loc*loc).sum(0))# distance unit vector
+        return te, rm
+
     def result(self, num=128):
         """
         Python generator that yields the output at microphones block-wise.
@@ -543,59 +600,80 @@ class MovingPointSourceIsm( PointSourceIsm ):
         #from the end of the calculated signal.
         
         signal = self.signal.usignal(self.up)
-        out = empty((num, self.numchannels))
-        tr = self.trajectory
-        #last location on trajectory
-        loc_end = tr.location(self.numsamples/self.sample_freq)
-        h = self.impulse_response(loc_end,self.numsamples, self.sample_freq,self.up)
-
-        y = empty((h.shape[0],self.numchannels))
-        for j in range(0,self.numchannels):
-            c = sig.convolve(signal,h[:,j])
-            y[:,j] = c[:h.shape[0]]
+        out = zeros((num, self.numchannels))
         # shortcuts and intial values
-        m = self.mics
-        t = self.start*ones(m.num_mics)
+        t = self.start*ones(self.mics.num_mics)
         i = 0
+        ind = 0
         epslim = 0.1/self.up/self.sample_freq
-        c0 = self.env.c
+        k = 0
+        convsignaln = self.numsamples
+        y = zeros((convsignaln,self.numchannels))#convsignaln-1?
+        ytemp = zeros((convsignaln,self.numchannels))
         n = self.numsamples
         while n:
-            n -= 1
-            eps = ones(m.num_mics)
-            te = t.copy() # init emission time = receiving time
-            j = 0
-            # Newton-Rhapson iteration
-            while abs(eps).max()>epslim and j<100:
-                loc = array(tr.location(te))
-                rm = loc-m.mpos# distance vectors to microphones
-                breakpoint()
-                rm = sqrt((rm*rm).sum(0))# absolute distance
-                breakpoint()
-                loc /= sqrt((loc*loc).sum(0))# distance unit vector
-                der = array(tr.location(te, der=1))
-                Mr = (der*loc).sum(0)/c0# radial Mach number
-                eps = (te + rm/c0 - t)/(1+Mr)# discrepancy in time 
-                breakpoint()
-                te -= eps
-                j += 1 #iteration count
-            #pseudo
-            #h = zeros[max(rm+numsamples)]
-            #h[te] = 1/rm
-            #signal = conv(signal,h)
+            h = self.impulse_response(epslim,t)
+            print("h.shape: ",h.shape)
+            ylen = self.numsamples+h.shape[0]
+            ylen = rint(ylen).astype(int)
+
+            if k<self.numsamples:
+                if ylen>convsignaln:
+                    breakpoint()
+                    n+=ylen-convsignaln
+                    dim1 = (ylen-convsignaln)
+                    print("dim1: ",dim1)
+                    ext = zeros((dim1,self.numchannels))
+                    y = append(y,ext, 0)
+                    convsignaln = ylen
+                ytemp = zeros((convsignaln,self.numchannels))
+                
+                for j in range(0,self.numchannels):
+                    c = sig.convolve([signal[ind*self.up]],h[:,j])
+                    ytemp[ind:ind+c.shape[0],j]=c
+                
+                y = y + ytemp
+                """
+                #print(y[40:60,0])
+                #print(h[40:60,0])
+                if k > 2386:
+                    print(h[30:50,0])
+                    print(y[2410:2450,0])
+                    breakpoint()
+                #breakpoint()
+                """
+
             t += 1./self.sample_freq
             # emission time relative to start time
-            ind = (te-self.start_t+self.start)*self.sample_freq
+            #ind = (te-self.start_t+self.start)*self.sample_freq
             try:
-                out[i] = signal[array(0.5+ind*self.up, dtype=int64)]/rm
+                print("n: ",n)
+                print("k: ",k)
+                print("i: ",i)
+                print("ind: ",ind)
+                out[i] = y[array(ind),:]
                 i += 1
+                ind += 1
                 if i == num:
+                    print("out: ",out[0])
                     yield out
                     i = 0
-            except IndexError: #if no more samples available from the source 
-                break
-        if i > 0: # if there are still samples to yield
-            yield out[:i]
+            except StopIteration:
+                print("JEY")
+                breakpoint()
+                return
+            k += 1
+            n -= 1
+        if i>0:
+            print("ACHTUNG")
+            print("i: ",i)
+            print("out: ",out[:i])
+            #out2 = zeros((num-i,self.numchannels))
+            #print("out2.shape: ",out2.shape)
+            #out = append(out[:i],out2,0)
+            print("out.shape: ",out.shape)
+            #return out
+            return out[:j]
 
 class GridExtender(Grid):
     """
