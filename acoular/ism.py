@@ -328,7 +328,7 @@ class Ism(SamplesGenerator):
         """
         return dot(point,n0)-dot(planepoint,n0)
 
-    def mirror_loc(self, n0, point1):
+    def mirror_loc(self,loc, n0, point1):
         """
         Reflects and returns the location of a source on the backside of a wall.
 
@@ -341,9 +341,9 @@ class Ism(SamplesGenerator):
         -------
         tuple of reflected loc
         """
-        d = self.plane_distance(self.source.loc,point1,n0)
+        d = self.plane_distance(loc,point1,n0)
         n02d = tuple(2*d*x for x in n0)
-        mirror_loc = subtract(self.source.loc,n02d)
+        mirror_loc = subtract(loc,n02d)
         mirror_loc = tuple(mirror_loc)
         return mirror_loc    
     
@@ -353,32 +353,8 @@ class Ism(SamplesGenerator):
         return d/self.env.c
     
     """
-    def impulse_response(self,loc,sample_freq,up):
-        hdirect = self.impulse_response_direct(loc,sample_freq,up)
-        #hreflect = self.impulse_response_reflect()
-        h = hdirect
-        return h
-
-    def impulse_response_direct(self,loc,sample_freq,up):
-        #mirror_loc = self.mirror_loc(self.room.walls[0].n0,self.room.walls[0].point1)
-        #travel distance
-        rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
-        #travel time
-        ind = (rm/self.env.c)*sample_freq*up
-        ind_max = rint(ind).max()
-        ind_max = ind_max.astype(int)
-        #num = numsamples*up + ind_max
-        amp = 1/rm
-        #h = zeros((num, self.numchannels))
-        h = zeros((ind_max+1, self.numchannels))
-        ind = array(0.5+ind,dtype=int64)
-        if ind.size == 1:
-            h[ind[0],0] = amp[0]
-        else:
-            for i in range(0,ind.size):
-                h[ind[0,i],i] = amp[0,i]
-        return h
-
+    def impulse_response(self):
+        pass
 
     def result(self,num):
         pass
@@ -431,6 +407,54 @@ class PointSourceIsm(Ism):
         return digest(self)
     """
 
+    def impulse_response(self):
+        #hdirect
+        h = self.calc_h(self.loc)
+        hlen = h.shape[0]
+        for wall in self.room.walls:
+            loc = self.mirror_loc(self.loc,wall.n0,wall.point1)
+            hreflexion = self.calc_h(loc)
+            if hlen<hreflexion.shape[0]:
+                dim1 = hreflexion.shape[0]-hlen
+                ext = zeros((dim1,self.numchannels))
+                h = append(h,ext,0)
+                hlen = h.shape[0]
+            else:
+                dim1 = hlen-hreflexion.shape[0]
+                ext = zeros((dim1,self.numchannels))
+                hreflexion = append(hreflexion,ext,0)
+                hlen = hreflexion.shape[0]
+            h += hreflexion
+        return h
+        """
+                if ylen>convsignaln:
+                    breakpoint()
+                    n+=ylen-convsignaln
+                    dim1 = (ylen-convsignaln)
+                    print("dim1: ",dim1)
+                    ext = zeros((dim1,self.numchannels))
+                    y = append(y,ext, 0)
+                    convsignaln = ylen
+        """
+
+    def calc_h(self,loc):
+        #travel distance
+        rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
+        #travel time
+        ind = (rm/self.env.c)*self.sample_freq*self.up
+        #ind_max = array(0.5+ind,dtype=int64)
+        ind_max = rint(ind).max()
+        ind_max = ind_max.astype(int)
+        amp = 1/rm
+        h = zeros((ind_max+1, self.numchannels))
+        ind = array(0.5+ind,dtype=int64)
+        if ind.size == 1:
+            h[ind[0],0] = amp[0]
+        else:
+            for i in range(0,ind.size):
+                h[ind[0,i],i] = amp[0,i]
+        return h
+
     def result(self, num=128):
         """
         Python generator that yields the output at microphones block-wise.
@@ -448,7 +472,7 @@ class PointSourceIsm(Ism):
         """
         signal = self.signal.usignal(self.up)
         out = zeros((num, self.numchannels))
-        h = self.impulse_response(self.loc, self.sample_freq,self.up)
+        h = self.impulse_response()
         ylen = self.numsamples*self.up+h.shape[0]
         y = empty((ylen-1,self.numchannels))
         for j in range(0,self.numchannels):
