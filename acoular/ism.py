@@ -426,16 +426,6 @@ class PointSourceIsm(Ism):
                 hlen = hreflexion.shape[0]
             h += hreflexion
         return h
-        """
-                if ylen>convsignaln:
-                    breakpoint()
-                    n+=ylen-convsignaln
-                    dim1 = (ylen-convsignaln)
-                    print("dim1: ",dim1)
-                    ext = zeros((dim1,self.numchannels))
-                    y = append(y,ext, 0)
-                    convsignaln = ylen
-        """
 
     def calc_h(self,loc):
         #travel distance
@@ -552,24 +542,69 @@ class MovingPointSourceIsm( PointSourceIsm ):
     def _get_digest( self ):
         return digest(self)
 
+    def mirror_trajectory(self,n0,point1):
+        trajectory = self.trajectory.clone_traits()
+        points = {}
+        for key, loc in self.trajectory.points.items():
+            d = self.plane_distance(loc,point1,n0)
+            n02d = tuple(2*d*x for x in n0)
+            mirror_loc = subtract(loc,n02d)
+            mirror_loc = tuple(mirror_loc)
+            points[key] = mirror_loc
+        trajectory.points = points
+        return trajectory
+
     def impulse_response(self,epslim,t):
-        hdirect = self.impulse_response_direct(epslim,t)
+        #hdirect = self.impulse_response_direct(epslim,t)
         #hreflect = self.impulse_response_reflect()
-        h = hdirect
+        #h = hdirect
+        h = self.calc_h(self.trajectory,epslim,t)
+        hlen = h.shape[0]
+        for wall in self.room.walls:
+            trajectory = self.mirror_trajectory(wall.n0,wall.point1)
+            hreflexion = self.calc_h(trajectory,epslim,t)
+            if hlen<hreflexion.shape[0]:
+                dim1 = hreflexion.shape[0]-hlen
+                ext = zeros((dim1,self.numchannels))
+                h = append(h,ext,0)
+                hlen = h.shape[0]
+            else:
+                dim1 = hlen-hreflexion.shape[0]
+                ext = zeros((dim1,self.numchannels))
+                hreflexion = append(hreflexion,ext,0)
+                hlen = hreflexion.shape[0]
+            h += hreflexion
         return h
 
-    def impulse_response_direct(self,epslim,t):
-        #mirror_loc = self.mirror_loc(self.room.walls[0].n0,self.room.walls[0].point1)
+    def calc_h(self,trajectory,epslim,t):
         #travel distance
-        te, rm = self.delay_distance_movingsource(epslim,t)
-        print("rm: ",rm[0])
+        te, rm = self.delay_distance_movingsource(trajectory,epslim,t)
         #travel time
         #ind = te*self.sample_freq
         ind2 = (rm/self.env.c)*self.sample_freq
         ind = abs(te-t)*self.sample_freq
-        print("max(ind)",max(abs(ind)))
-        print("ind: ",ind[0])
-        print("rmt: ",ind2[0])
+        ind_max = rint(ind).max()
+        ind_max = ind_max.astype(int)
+        #num = numsamples*up + ind_max
+        amp = 1/rm
+        #h = zeros((num, self.numchannels))
+        h = zeros((ind_max+1, self.numchannels))
+        ind = array(0.5+ind,dtype=int64)
+        if ind.size == 1:
+            h[ind[0],0] = amp[0]
+        else:
+            for i in range(0,ind.size):
+                h[ind[i],i] = amp[i]
+        return h
+        
+
+    def impulse_response_direct(self,epslim,t):
+        #travel distance
+        te, rm = self.delay_distance_movingsource(self.trajectory,epslim,t)
+        #travel time
+        #ind = te*self.sample_freq
+        ind2 = (rm/self.env.c)*self.sample_freq
+        ind = abs(te-t)*self.sample_freq
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)
         #num = numsamples*up + ind_max
@@ -584,22 +619,30 @@ class MovingPointSourceIsm( PointSourceIsm ):
                 h[ind[i],i] = amp[i]
         return h
     
-    def delay_distance_movingsource(self,epslim,t):
+    def impulse_response_reflexion(self,walls):
+        trajectories = []
+        for wall in self.room.walls:
+            temp = self.clone_traits()
+            temp.source.loc = temp.mirror_loc(wall.n0,wall.point1)
+            sources.extend([temp.source])
+        return hreflexion
+    
+    def delay_distance_movingsource(self,trajectory,epslim,t):
         j = 0
         eps = ones(self.mics.num_mics)
         te = t.copy() # init emission time = receiving time
-        loc = array(self.trajectory.location(te))
+        loc = array(trajectory.location(te))
         rm = loc-self.mics.mpos# distance vectors to microphones
         rm = sqrt((rm*rm).sum(0))# absolute distance
         loc /= sqrt((loc*loc).sum(0))# distance unit vector
         # Newton-Rhapson iteration
         while abs(eps).max()>epslim and j<100:
-            der = array(self.trajectory.location(te, der=1))
+            der = array(trajectory.location(te, der=1))
             Mr = (der*loc).sum(0)/self.env.c# radial Mach number
             eps = (te + rm/self.env.c-t)/(1+Mr)# discrepancy in time 
             te -= eps
             j += 1 #iteration count
-            loc = array(self.trajectory.location(te))
+            loc = array(trajectory.location(te))
             rm = loc-self.mics.mpos# distance vectors to microphones
             rm = sqrt((rm*rm).sum(0))# absolute distance
             loc /= sqrt((loc*loc).sum(0))# distance unit vector
@@ -620,9 +663,6 @@ class MovingPointSourceIsm( PointSourceIsm ):
         Samples in blocks of shape (num, numchannels). 
             The last block may be shorter than num.
         """   
-        #If signal samples are needed for te < t_start, then samples are taken
-        #from the end of the calculated signal.
-        
         signal = self.signal.usignal(self.up)
         out = zeros((num, self.numchannels))
         # shortcuts and intial values
@@ -632,21 +672,17 @@ class MovingPointSourceIsm( PointSourceIsm ):
         epslim = 0.1/self.up/self.sample_freq
         k = 0
         convsignaln = self.numsamples
-        y = zeros((convsignaln,self.numchannels))#convsignaln-1?
+        y = zeros((convsignaln,self.numchannels))
         ytemp = zeros((convsignaln,self.numchannels))
         n = self.numsamples
         while n:
             h = self.impulse_response(epslim,t)
-            print("h.shape: ",h.shape)
             ylen = self.numsamples+h.shape[0]
             ylen = rint(ylen).astype(int)
-
             if k<self.numsamples:
                 if ylen>convsignaln:
-                    breakpoint()
                     n+=ylen-convsignaln
                     dim1 = (ylen-convsignaln)
-                    print("dim1: ",dim1)
                     ext = zeros((dim1,self.numchannels))
                     y = append(y,ext, 0)
                     convsignaln = ylen
@@ -657,46 +693,21 @@ class MovingPointSourceIsm( PointSourceIsm ):
                     ytemp[ind:ind+c.shape[0],j]=c
                 
                 y = y + ytemp
-                """
-                #print(y[40:60,0])
-                #print(h[40:60,0])
-                if k > 2386:
-                    print(h[30:50,0])
-                    print(y[2410:2450,0])
-                    breakpoint()
-                #breakpoint()
-                """
 
             t += 1./self.sample_freq
-            # emission time relative to start time
-            #ind = (te-self.start_t+self.start)*self.sample_freq
             try:
-                print("n: ",n)
-                print("k: ",k)
-                print("i: ",i)
-                print("ind: ",ind)
                 out[i] = y[array(ind),:]
                 i += 1
                 ind += 1
                 if i == num:
-                    print("out: ",out[0])
+                    print("n: ",n)
                     yield out
                     i = 0
             except StopIteration:
-                print("JEY")
-                breakpoint()
                 return
             k += 1
             n -= 1
         if i>0:
-            print("ACHTUNG")
-            print("i: ",i)
-            print("out: ",out[:i])
-            #out2 = zeros((num-i,self.numchannels))
-            #print("out2.shape: ",out2.shape)
-            #out = append(out[:i],out2,0)
-            print("out.shape: ",out.shape)
-            #return out
             return out[:j]
 
 class GridExtender(Grid):
