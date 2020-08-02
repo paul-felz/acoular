@@ -6,16 +6,19 @@
     Ism
 """
 
+import warnings
+from resampy import resample
 from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
 ndarray, rint, empty, int64, ones, append, floor
 from numpy.linalg.linalg import norm
 from scipy import signal as sig
+from scipy.io import wavfile
 
 from traits.api import HasTraits, HasPrivateTraits, Float, Int, ListInt, ListFloat, \
 CArray, Property, Instance, Trait, Bool, Range, Delegate, Enum, Any, \
 cached_property, on_trait_change, property_depends_on, List, \
-Tuple
+Tuple, Str, Array, Long
 
 from .internal import digest
 from .sources import SamplesGenerator, SourceMixer, PointSource
@@ -407,13 +410,13 @@ class PointSourceIsm(Ism):
         return digest(self)
     """
 
-    def impulse_response(self):
+    def impulse_response(self,loc):
         #hdirect
-        h = self.calc_h(self.loc)
+        h = self.calc_h(loc)
         hlen = h.shape[0]
         for wall in self.room.walls:
-            loc = self.mirror_loc(self.loc,wall.n0,wall.point1)
-            hreflexion = self.calc_h(loc)
+            locm = self.mirror_loc(loc,wall.n0,wall.point1)
+            hreflexion = self.calc_h(locm)
             if hlen<hreflexion.shape[0]:
                 dim1 = hreflexion.shape[0]-hlen
                 ext = zeros((dim1,self.numchannels))
@@ -462,7 +465,7 @@ class PointSourceIsm(Ism):
         """
         signal = self.signal.usignal(self.up)
         out = zeros((num, self.numchannels))
-        h = self.impulse_response()
+        h = self.impulse_response(self.loc)
         ylen = self.numsamples*self.up+h.shape[0]
         y = empty((ylen-1,self.numchannels))
         for j in range(0,self.numchannels):
@@ -872,3 +875,77 @@ class SteeringVectorRoom( SteeringVector ):
                 }[self.steer_type]
         return func(self.transfer(f, ind))
 
+class LoadSignal( SignalGenerator ):
+    """
+    Load signal generator. 
+    """
+
+    wavpath = Trait(Str) 
+
+    wav = Property()
+
+    data = Property
+
+    _numsamples = Long
+
+    numsamples = Property()
+
+    def _get_wav(self):
+        fs,data = wavfile.read(self.wavpath)
+        return fs, data
+    
+    """
+    @property_depends_on('wavpath')
+    def _get_numsamples(self):
+        fs, data = self._get_wav()
+        return len(data)
+    """
+    
+    @on_trait_change('wavpath')
+    def _get_data(self):
+        fs, data = wavfile.read(self.wavpath)
+        if data.shape[1] >1:
+            data = data[:,0]
+        if fs != self.sample_freq:
+            data = resample(data, fs, self.sample_freq, axis=-1)
+            numsamples = len(data)
+            self.numsamples = numsamples
+            warnings.warn('Warning: Resample of Sound file. Reconsider sample frequency change!')
+            return data
+        else:
+            return data
+
+    def _get_numsamples(self):
+        return self._numsamples
+
+    def _set_numsamples(self,numsamples):
+        self._numsamples = numsamples
+        
+    def signal(self):
+        """
+        Deliver *.wav signal.
+
+
+        Returns
+        -------
+        Array of floats
+            The resulting signal as an array of length :attr:`~SignalGenerator.numsamples`.
+        """
+        return self.data
+
+    def usignal(self, factor):
+        """
+        Delivers the signal resampled with a multiple of the sampling freq.
+        
+        Parameters
+        ----------
+        factor : integer
+            The factor defines how many times the new sampling frequency is
+            larger than :attr:`sample_freq`.
+        
+        Returns
+        -------
+        array of floats
+            The resulting signal of length `factor` * :attr:`numsamples`.
+        """
+        return resample(self.signal(), self.sample_freq, factor*self.sample_freq)
