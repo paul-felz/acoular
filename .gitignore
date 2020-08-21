@@ -1,4 +1,5 @@
 # files and file types to ignore
+*.swl
 *.swm
 *.swp
 *.swo

@@ -10,7 +10,7 @@ import warnings
 from resampy import resample
 from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
-ndarray, rint, empty, int64, ones, append, floor
+ndarray, rint, empty, int64, ones, append, floor, insert
 from numpy.linalg.linalg import norm
 from scipy import signal as sig
 from scipy.io import wavfile
@@ -275,6 +275,10 @@ class Ism(SamplesGenerator):
     #: which provides information about the sound propagation in the medium.
     env = Trait(Environment(), Environment)
 
+    #: Location of source in (`x`, `y`, `z`) coordinates (left-oriented system).
+    loc = Tuple((0.0, 0.0, 1.0),
+        desc="source location")
+               
     #rp = Property()
 
     #: Number of channels in output, is set automatically / 
@@ -373,10 +377,6 @@ class PointSourceIsm(Ism):
     #:  Emitted signal, instance of the :class:`~acoular.signals.SignalGenerator` class.
     signal = Trait(SignalGenerator)
     
-    #: Location of source in (`x`, `y`, `z`) coordinates (left-oriented system).
-    loc = Tuple((0.0, 0.0, 1.0),
-        desc="source location")
-               
     #: Start time of the signal in seconds, defaults to 0 s.
     start_t = Float(0.0,
         desc="signal start time")
@@ -411,9 +411,13 @@ class PointSourceIsm(Ism):
     """
 
     def impulse_response(self,loc):
+        """
+        Calculates impulse response of a given source location in relation to a room.
+        """
         #hdirect
         h = self.calc_h(loc)
         hlen = h.shape[0]
+        #add reflexions to h and append size of h with longest reflexion size
         for wall in self.room.walls:
             locm = self.mirror_loc(loc,wall.n0,wall.point1)
             hreflexion = self.calc_h(locm)
@@ -431,13 +435,17 @@ class PointSourceIsm(Ism):
         return h
 
     def calc_h(self,loc):
+        """
+        Calculates h matrix for a given position in relation to microphones.
+        """
         #travel distance
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
-        #travel time
+        #travel time index
         ind = (rm/self.env.c)*self.sample_freq*self.up
         #ind_max = array(0.5+ind,dtype=int64)
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)
+        #TODO: Add alpha to amp
         amp = 1/rm
         h = zeros((ind_max+1, self.numchannels))
         ind = array(0.5+ind,dtype=int64)
@@ -882,30 +890,29 @@ class LoadSignal( SignalGenerator ):
 
     wavpath = Trait(Str) 
 
-    wav = Property()
-
-    data = Property
+    data = Property()
+    
+    #start stop of audio in s
+    #both get calculated if bigger than 0.0s
+    starts = Int(0,
+            desc="start time in samples")
+    stops= Int(0,
+            desc="stop time in samples")
 
     _numsamples = Long
 
     numsamples = Property()
 
-    def _get_wav(self):
-        fs,data = wavfile.read(self.wavpath)
-        return fs, data
-    
-    """
-    @property_depends_on('wavpath')
-    def _get_numsamples(self):
-        fs, data = self._get_wav()
-        return len(data)
-    """
-    
     @on_trait_change('wavpath')
     def _get_data(self):
         fs, data = wavfile.read(self.wavpath)
-        if data.shape[1] >1:
+        if data.ndim >1:
             data = data[:,0]
+        if self.starts != 0:
+            data = data[self.starts:]
+        if self.stops != 0.0:
+            stops = self.stops-self.starts
+            data = data[:stops]
         if fs != self.sample_freq:
             data = resample(data, fs, self.sample_freq, axis=-1)
             numsamples = len(data)
@@ -949,3 +956,41 @@ class LoadSignal( SignalGenerator ):
             The resulting signal of length `factor` * :attr:`numsamples`.
         """
         return resample(self.signal(), self.sample_freq, factor*self.sample_freq)
+
+class Reverberation(HasPrivateTraits):
+    
+    signal = Instance(SignalGenerator(),SignalGenerator)
+
+    mics = Trait(MicGeom,
+            desc="microphone geometry")
+
+    ism = Instance(Ism(),Ism)
+
+    loc = Delegate('ism','loc')
+
+    numchannels = Delegate('mics','num_mics')
+
+    #normalized impulse response
+    h = Property()
+
+    #revereberation of room on signal
+    signalroom = Property()
+
+    def _get_h(self):
+        htemp = self.ism.impulse_response(self.loc)
+        #norm length of impulse responses
+        h = []
+        for i in range (0,htemp.shape[1]):
+            hlen = where(htemp[:,i]!=0)
+            hchannel = array(htemp[hlen[0][0]:hlen[0][-1]+1,i])
+            h.insert(i,hchannel)
+        return h
+
+    def _get_signalroom(self):
+        yreverb = []
+        for i in range(0,self.numchannels):
+            yreverbi = sig.convolve(self.signal.signal(),self.h[i])
+            #yreverbi = lfilter(hnorms[j],[1.0],signal)
+            #ydowni = yreverbi[0::ism.up]
+            yreverb.insert(i,yreverbi)
+        return yreverb

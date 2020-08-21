@@ -82,7 +82,7 @@ from .microphones import MicGeom
 from .spectra import PowerSpectra, PowerSpectra as EigSpectra, synthetic
 from .ism import Orientation, Wall, WallHesse, Wall3Points, WallOrientation, Room, \
 Ism, SteeringVectorRoom, GridExtender, PointSourceIsm, IsmRealImages, \
-MovingPointSourceIsm, LoadSignal
+MovingPointSourceIsm, LoadSignal, Reverberation
 
 from .fbeamform import BeamformerBase, BeamformerCapon, BeamformerEig, \
 BeamformerMusic, BeamformerDamas, BeamformerDamasPlus, BeamformerOrth,BeamformerCleansc, \
