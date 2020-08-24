@@ -10,9 +10,9 @@ import warnings
 from resampy import resample
 from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
-ndarray, rint, empty, int64, ones, append, floor, insert
-from numpy.linalg.linalg import norm
-from scipy import signal as sig
+ndarray, rint, empty, int64, ones, append, floor, insert, column_stack
+from numpy.linalg import norm, inv
+from scipy.signal import convolve
 from scipy.io import wavfile
 
 from traits.api import HasTraits, HasPrivateTraits, Float, Int, ListInt, ListFloat, \
@@ -388,22 +388,25 @@ class PointSourceIsm(Ism):
 
     #: Upsampling factor, internal use, defaults to 16.
     up = Int(16, 
-        desc="upsampling factor")        
-    
-    #: Number of samples, is set automatically / 
-    #: depends on :attr:`signal`.
-    numsamples = Delegate('signal')
+        desc="upsampling factor")         
     
     #: Sampling frequency of the signal, is set automatically / 
     #: depends on :attr:`signal`.
     sample_freq = Delegate('signal') 
 
+    #: Number of samples, is set automatically / 
+    #: depends on :attr:`signal`.
+    numsamples = Property(depends_on = ['loc','signal'])
+
+    def _get_numsamples(self):
+        return self.signal.numsamples*self.up+self.impulse_response(self.loc).shape[0]-1
+
     """
     # internal identifier
     digest = Property( 
         depends_on = ['mics.digest', 'signal.digest', 'loc', \
-         'env.digest', 'start_t', 'start', 'up', '__class__'], 
-        )
+     'env.digest', 'start_t', 'start', 'up', '__class__'], 
+    )
                
     @cached_property
     def _get_digest( self ):
@@ -442,6 +445,7 @@ class PointSourceIsm(Ism):
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
         #travel time index
         ind = (rm/self.env.c)*self.sample_freq*self.up
+        #TODO: Just use ind as it is the same  as ind_max
         #ind_max = array(0.5+ind,dtype=int64)
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)
@@ -474,10 +478,9 @@ class PointSourceIsm(Ism):
         signal = self.signal.usignal(self.up)
         out = zeros((num, self.numchannels))
         h = self.impulse_response(self.loc)
-        ylen = self.numsamples*self.up+h.shape[0]
-        y = empty((ylen-1,self.numchannels))
+        y = empty((self.numsamples,self.numchannels))
         for j in range(0,self.numchannels):
-            y[:,j] = sig.convolve(signal,h[:,j])
+            y[:,j] = convolve(signal,h[:,j])
         # distances
         #rm = self.env._r(array(self.loc).reshape((3, 1)), self.mics.mpos)
         # emission time relative to start_t (in samples) for first sample
@@ -700,7 +703,7 @@ class MovingPointSourceIsm( PointSourceIsm ):
                 ytemp = zeros((convsignaln,self.numchannels))
                 
                 for j in range(0,self.numchannels):
-                    c = sig.convolve([signal[ind*self.up]],h[:,j])
+                    c = convolve([signal[ind*self.up]],h[:,j])
                     ytemp[ind:ind+c.shape[0],j]=c
                 
                 y = y + ytemp
@@ -903,7 +906,7 @@ class LoadSignal( SignalGenerator ):
 
     numsamples = Property()
 
-    @on_trait_change('wavpath')
+    @on_trait_change('wavpath,starts,stops')
     def _get_data(self):
         fs, data = wavfile.read(self.wavpath)
         if data.ndim >1:
@@ -957,40 +960,238 @@ class LoadSignal( SignalGenerator ):
         """
         return resample(self.signal(), self.sample_freq, factor*self.sample_freq)
 
-class Reverberation(HasPrivateTraits):
-    
-    signal = Instance(SignalGenerator(),SignalGenerator)
-
-    mics = Trait(MicGeom,
-            desc="microphone geometry")
-
-    ism = Instance(Ism(),Ism)
+class FiniteImpulseResponse(HasPrivateTraits):
+    ism = Trait(Ism(),Ism)
 
     loc = Delegate('ism','loc')
 
-    numchannels = Delegate('mics','num_mics')
+    #simulated impulse response
+    impulse_response = Property()
 
-    #normalized impulse response
+    @property_depends_on('loc,ism')
+    def _get_impulse_response(self):
+        return self.ism.impulse_response(self.loc)
+
+    #frame indices of valid impulse response values
+    hframe = Property()
+
+    @property_depends_on('impulse_response')
+    def _get_hframe(self):
+        hframe = []
+        for i in range(0,self.impulse_response.shape[1]):
+            hframechannel = where(self.impulse_response[:,i]!=0)
+            hframe.insert(i,hframechannel[0])
+        return hframe
+    
+    #normalized impulse response 
     h = Property()
 
-    #revereberation of room on signal
-    signalroom = Property()
-
+    @property_depends_on('impulse_response,hframe')
     def _get_h(self):
-        htemp = self.ism.impulse_response(self.loc)
-        #norm length of impulse responses
+        #normalized length of impulse responses with hframe
         h = []
-        for i in range (0,htemp.shape[1]):
-            hlen = where(htemp[:,i]!=0)
-            hchannel = array(htemp[hlen[0][0]:hlen[0][-1]+1,i])
+        for i in range (0,self.impulse_response.shape[1]):
+            hchannel = array(self.impulse_response[self.hframe[i][0]:self.hframe[i][-1]+1,i])
             h.insert(i,hchannel)
         return h
 
-    def _get_signalroom(self):
-        yreverb = []
-        for i in range(0,self.numchannels):
-            yreverbi = sig.convolve(self.signal.signal(),self.h[i])
-            #yreverbi = lfilter(hnorms[j],[1.0],signal)
-            #ydowni = yreverbi[0::ism.up]
-            yreverb.insert(i,yreverbi)
-        return yreverb
+
+class Mint(HasPrivateTraits):
+
+    fir = Trait(FiniteImpulseResponse(),FiniteImpulseResponse)
+
+    ism = Trait(Ism(),Ism)
+
+    h = Property()
+
+    @property_depends_on('fir')
+    def _get_h(self):
+        return self.fir.h
+    
+    def choose_channel(self):
+        h = self.h    
+        hlenchannel1 = len(h)
+        hlenchannel2 = hlenchannel1
+        while hlenchannel1:
+            hlenchannel1 -=1
+            while hlenchannel2:
+                hlenchannel2 -= 1
+                if len(h[hlenchannel1]) != len(h[hlenchannel2]):
+                    break
+            else:
+                hlenchannel2 = len(h)
+                continue
+            break
+        if len(h[hlenchannel1]) != len(h[hlenchannel2]):
+            return hlenchannel1, hlenchannel2
+        else:
+            raise Exception("To invert the FIR system two impulse responses with different zeros are mandatory") 
+
+    g = Property()
+    
+    @property_depends_on('h')
+    def _get_g(self):
+        h = self.h
+
+        [hchannel1,hchannel2] = self.choose_channel()
+
+        #Duration of impulse Responses channel 1 and 2
+        m = len(h[hchannel1])-1
+        n = len(h[hchannel2])-1
+
+        #number of filter coefficients for inverse filtering channel 1 and 2
+        i = n-1
+        j = m-1
+
+        #help to calc shape of output l = m+i = n+j
+        l = m+i
+
+        # d = h * g -- result of inverse filter convolution
+        d= zeros((l))
+        d= append(1,d)
+
+        #mint impulse response matrices
+        gtemp1 = zeros(i)
+        gtemp1 = append(h[hchannel1],gtemp1)
+        g1 = gtemp1
+        gtemp2 = zeros(j)
+        gtemp2 = append(h[hchannel2],gtemp2)
+        g2 = gtemp2
+
+        ind = i
+        while ind:
+            gtemp1 = append(gtemp1[-1:],gtemp1[:-1])
+            g1 = column_stack((g1,gtemp1))
+            ind-=1
+
+        jnd = j
+        while jnd:
+            gtemp2 = append(gtemp2[-1:],gtemp2[:-1])
+            g2 = column_stack((g2,gtemp2))
+            jnd-=1
+
+        #[hfilt1, hfilt2]^T = [g1, g2]^-1 * d
+        gsquare = column_stack((g1,g2))
+        gsquareinv = inv(gsquare)
+        hfilt = gsquareinv*d
+
+        hfilt1 = hfilt[0:i+1,0]
+        hfilt2 = hfilt[i+1:i+2+j,0]
+        g = [hfilt1, hfilt2]
+        return g
+
+    yrecovered = Property()
+    
+    @property_depends_on('fir,ism,g')
+    def _get_yrecovered(self):
+        [hchannel1,hchannel2] = self.choose_channel()
+        print("Channel ",hchannel1," and channel ",hchannel2," selected for multiple input multiple output inverse filtering.")
+        [hfilt1,hfilt2] = self.g
+        hframe = self.fir.hframe
+        hframe1 = hframe[hchannel1]
+        hframe2 = hframe[hchannel2]
+
+        for item in self.ism.result(self.ism.numsamples):
+            yrecovered = convolve(hfilt1,item[hframe1[0]:,hchannel1])
+            yrecovered = yrecovered[::self.ism.up]
+            yrecovered2 = convolve(hfilt2,item[hframe2[0]:,hchannel2])
+            yrecovered2 = yrecovered2[::self.ism.up]
+
+        if len(yrecovered)>len(yrecovered2):
+            lendiff = len(yrecovered)-len(yrecovered2)
+            padding = zeros(lendiff)
+            yrecovered2 = append(yrecovered2,padding)
+        elif len(yrecovered)<len(yrecovered2):
+            lendiff = len(yrecovered2)-len(yrecovered)
+            padding = zeros(lendiff)
+            yrecovered = append(yrecovered,padding)
+
+        yrecov = yrecovered + yrecovered2
+        print(yrecov.shape)
+        return yrecov
+
+    """ 
+    ##MINT
+
+
+    #mint impulse response matrices
+    gtemp1 = zeros(i)
+    gtemp1 = append(hnorms[15],gtemp1)
+    g1 = gtemp1
+    gtemp2 = zeros(j)
+    gtemp2 = append(hnorms[16],gtemp2)
+    g2 = gtemp2
+
+    ind = i
+    while ind:
+        gtemp1 = append(gtemp1[-1:],gtemp1[:-1])
+        g1 = column_stack((g1,gtemp1))
+        ind-=1
+
+    jnd = j
+    while jnd:
+        gtemp2 = append(gtemp2[-1:],gtemp2[:-1])
+        g2 = column_stack((g2,gtemp2))
+        jnd-=1
+
+    #[hfilt1, hfilt2]^T = [g1, g2]^-1 * d
+    gsquare = column_stack((g1,g2))
+    breakpoint()
+    gsquareinv = inv(gsquare)
+    hfilt = gsquareinv*d
+
+    hfilt1 = hfilt[0:i+1,0]
+    hfilt2 = hfilt[i+1:i+2+j,0]
+
+    for item in ism.result(ism.numsamples):
+        yrecovered = lfilter(hfilt1,[1.0],item[126:-28,15])
+        yrecovered = yrecovered[::ism.up]
+        yrecovered2 = lfilter(hfilt2,[1.0],item[139:-9,16])
+        yrecovered2 = yrecovered2[::ism.up]
+
+    breakpoint()
+
+
+    if len(yrecovered)>len(yrecovered2):
+        lendiff = len(yrecovered)-len(yrecovered2)
+        padding = zeros(lendiff)
+        yrecovered2 = append(yrecovered2,padding)
+    elif len(yrecovered)<len(yrecovered2):
+        lendiff = len(yrecovered2)-len(yrecovered)
+        padding = zeros(lendiff)
+        yrecovered = append(yrecovered,padding)
+
+    yrecov = yrecovered + yrecovered2
+
+    figure(1)
+    plt.plot(yrecov)
+    plt.plot(signal)
+    figure(2)
+    plt.plot(signal)
+    plt.plot(yrecov)
+    #figure(2)
+    #plt.plot(originaln,y20n,'o')
+
+    show()
+
+
+    breakpoint()
+    #original = w1.signal()
+    #Correlate
+    #n=0
+    #for i in yrecov:
+    #    if abs(i)>=1e-7:
+    #        yrecoveredn = yrecov[n:]
+    #        break
+    #    n+=1
+    #short y20n
+    #y20n = y20n[:len(original)]
+    #better
+    #lendiff = len(yrecoveredn)-len(signal)
+    lendiff = len(yrecov)-len(signal)
+    padding = zeros(lendiff)
+    originaln = append(signal,padding)
+    co2 = corrcoef(originaln,yrecov)
+
+    print(co2)
+    """
