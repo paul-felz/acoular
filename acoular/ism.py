@@ -278,7 +278,7 @@ class Ism(SamplesGenerator):
     #: Location of source in (`x`, `y`, `z`) coordinates (left-oriented system).
     loc = Tuple((0.0, 0.0, 1.0),
         desc="source location")
-               
+
     #rp = Property()
 
     #: Number of channels in output, is set automatically / 
@@ -423,6 +423,7 @@ class PointSourceIsm(Ism):
         #add reflexions to h and append size of h with longest reflexion size
         for wall in self.room.walls:
             locm = self.mirror_loc(loc,wall.n0,wall.point1)
+            print(locm)
             hreflexion = self.calc_h(locm)
             if hlen<hreflexion.shape[0]:
                 dim1 = hreflexion.shape[0]-hlen
@@ -552,6 +553,8 @@ class MovingPointSourceIsm( PointSourceIsm ):
          'env.digest', 'start_t', 'start', 'trajectory.digest', '__class__'], 
         )
                
+    #TODO: get numsamples
+
     @cached_property
     def _get_digest( self ):
         return digest(self)
@@ -963,13 +966,16 @@ class LoadSignal( SignalGenerator ):
 class FiniteImpulseResponse(HasPrivateTraits):
     ism = Trait(Ism(),Ism)
 
-    loc = Delegate('ism','loc')
+    #loc = Delegate('ism','loc')
+    loc = Tuple((0.0, 0.0, 1.0),
+        desc="source location")
 
     #simulated impulse response
     impulse_response = Property()
 
     @property_depends_on('loc,ism')
     def _get_impulse_response(self):
+        print("self.loc:",self.loc)
         return self.ism.impulse_response(self.loc)
 
     #frame indices of valid impulse response values
@@ -995,6 +1001,65 @@ class FiniteImpulseResponse(HasPrivateTraits):
             h.insert(i,hchannel)
         return h
 
+class SyntheticVerb(PointSourceIsm):
+    
+    def result(self, num=128):
+        """
+        Python generator that yields the output at microphones block-wise.
+                
+        Parameters
+        ----------
+        num : integer, defaults to 128
+            This parameter defines the size of the blocks to be yielded
+            (i.e. the number of samples per block) .
+        
+        Returns
+        -------
+        Samples in blocks of shape (num, numchannels). 
+            The last block may be shorter than num.
+        """
+        signal = self.signal.usignal(self.up)
+        out = zeros((num, self.numchannels))
+        h = self.impulse_response(self.loc)
+        y = empty((self.numsamples,self.numchannels))
+        for j in range(0,self.numchannels):
+            y[:,j] = convolve(signal,h[:,j])
+        # distances
+        #rm = self.env._r(array(self.loc).reshape((3, 1)), self.mics.mpos)
+        # emission time relative to start_t (in samples) for first sample
+        #ind = (-rm/self.env.c-self.start_t+self.start)*self.sample_freq   
+        #ind_max = abs(ind).max(1)
+        i = 0
+        ind = 0
+        ts = self.start_t*self.sample_freq
+        ts = rint(ts).astype(int)
+        tm = self.start*self.sample_freq
+        tm = rint(tm).astype(int)
+        n = y.shape[0] + ts
+        while n:
+            n -= 1
+            if ts>0:
+                if tm>0:
+                    tm-=1
+                else:
+                    out[i]=0.0
+                    i+=1
+                    if i == num:
+                        yield out
+                        i = 0
+                ts-=1
+            else:
+                try:
+                    out[i] = y[(ind+tm),:]
+                    i += 1
+                    ind += 1
+                    if i == num:
+                        yield out
+                        i = 0
+                except IndexError: #if no more samples available from the source
+                    break
+        if i > 0: # if there are still samples to yield
+            yield out[:i]         
 
 class Mint(HasPrivateTraits):
 
@@ -1107,91 +1172,4 @@ class Mint(HasPrivateTraits):
             yrecovered = append(yrecovered,padding)
 
         yrecov = yrecovered + yrecovered2
-        print(yrecov.shape)
         return yrecov
-
-    """ 
-    ##MINT
-
-
-    #mint impulse response matrices
-    gtemp1 = zeros(i)
-    gtemp1 = append(hnorms[15],gtemp1)
-    g1 = gtemp1
-    gtemp2 = zeros(j)
-    gtemp2 = append(hnorms[16],gtemp2)
-    g2 = gtemp2
-
-    ind = i
-    while ind:
-        gtemp1 = append(gtemp1[-1:],gtemp1[:-1])
-        g1 = column_stack((g1,gtemp1))
-        ind-=1
-
-    jnd = j
-    while jnd:
-        gtemp2 = append(gtemp2[-1:],gtemp2[:-1])
-        g2 = column_stack((g2,gtemp2))
-        jnd-=1
-
-    #[hfilt1, hfilt2]^T = [g1, g2]^-1 * d
-    gsquare = column_stack((g1,g2))
-    breakpoint()
-    gsquareinv = inv(gsquare)
-    hfilt = gsquareinv*d
-
-    hfilt1 = hfilt[0:i+1,0]
-    hfilt2 = hfilt[i+1:i+2+j,0]
-
-    for item in ism.result(ism.numsamples):
-        yrecovered = lfilter(hfilt1,[1.0],item[126:-28,15])
-        yrecovered = yrecovered[::ism.up]
-        yrecovered2 = lfilter(hfilt2,[1.0],item[139:-9,16])
-        yrecovered2 = yrecovered2[::ism.up]
-
-    breakpoint()
-
-
-    if len(yrecovered)>len(yrecovered2):
-        lendiff = len(yrecovered)-len(yrecovered2)
-        padding = zeros(lendiff)
-        yrecovered2 = append(yrecovered2,padding)
-    elif len(yrecovered)<len(yrecovered2):
-        lendiff = len(yrecovered2)-len(yrecovered)
-        padding = zeros(lendiff)
-        yrecovered = append(yrecovered,padding)
-
-    yrecov = yrecovered + yrecovered2
-
-    figure(1)
-    plt.plot(yrecov)
-    plt.plot(signal)
-    figure(2)
-    plt.plot(signal)
-    plt.plot(yrecov)
-    #figure(2)
-    #plt.plot(originaln,y20n,'o')
-
-    show()
-
-
-    breakpoint()
-    #original = w1.signal()
-    #Correlate
-    #n=0
-    #for i in yrecov:
-    #    if abs(i)>=1e-7:
-    #        yrecoveredn = yrecov[n:]
-    #        break
-    #    n+=1
-    #short y20n
-    #y20n = y20n[:len(original)]
-    #better
-    #lendiff = len(yrecoveredn)-len(signal)
-    lendiff = len(yrecov)-len(signal)
-    padding = zeros(lendiff)
-    originaln = append(signal,padding)
-    co2 = corrcoef(originaln,yrecov)
-
-    print(co2)
-    """
