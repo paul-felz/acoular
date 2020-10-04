@@ -1,8 +1,5 @@
 # files and file types to ignore
-*.swl
-*.swm
-*.swp
-*.swo
+*.sw*
 *.pyc
 *.py.swn
 *.pyd

@@ -1,27 +1,20 @@
-"""Implements image source method of Jont B. Allen and David A. Berkley.
-
-.. autosummary::
-    :toctree: generated/
-    
-    Ism
-"""
-
 import warnings
 from resampy import resample
 from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
-ndarray, rint, empty, int64, ones, append, floor, insert, column_stack
+ndarray, rint, empty, int64, ones, append, floor, insert, column_stack, log10, \
+nonzero, flip, linspace, exp, log, ma, argmax
 from numpy.linalg import norm, inv
 from scipy.signal import convolve
 from scipy.io import wavfile
 
 from traits.api import HasTraits, HasPrivateTraits, Float, Int, ListInt, ListFloat, \
 CArray, Property, Instance, Trait, Bool, Range, Delegate, Enum, Any, \
-cached_property, on_trait_change, property_depends_on, List, \
-Tuple, Str, Array, Long
+cached_property, on_trait_change, property_depends_on, List, Tuple, Str, \
+Array, Long
 
 from .internal import digest
-from .sources import SamplesGenerator, SourceMixer, PointSource
+from .sources import SamplesGenerator, SourceMixer, PointSource, MaskedTimeSamples
 from .grids import Grid, RectGrid
 from .environments import Environment
 from .microphones import MicGeom
@@ -127,7 +120,7 @@ class WallOrientation(Wall):
     orientation = Trait(Orientation,
             desc="describes axis, that is perpendicular to wall plane")
 
-    point1 = Property()
+    point1 = Property(desc="base point of wall")
     
     @property_depends_on('position, orientation')
     def _get_point1(self):
@@ -152,11 +145,10 @@ class WallOrientation(Wall):
 class Room(Environment):
     """
     Turns the simple acoustic environment into a more advanced environment of a room.
-    For example: A cuboid.
+    For example: Single wall, a cuboid.
     """
     walls = List( Instance(Wall,()) ,
             desc="List of Instances wall which contents all wall planes of a specific room.")
-
 
     def add_wall(self, wall):
         self.walls.append(wall)
@@ -176,24 +168,19 @@ class Room(Environment):
         self.add_wall(wall)
         return self
 
-
-
-
 class IsmRealImages(SamplesGenerator):
     """
-    Mirrors the source on walls of room and writes them to the list sources.
+    Image source model for fast beamforming.
+    Mirrors the point source "pyhsicaly" behind walls of room and writes them to the list sources.
     J. Allen and D. Berkeley, "Image method for efficiently simulating small-room acoustics"
-    with negative reflection coefficients adapted by
-    E. Lehmann and A. Johansson, "Prediction of energy decay in room impulse responses simulated with an image-source model"
     """
-    #TODO: Don't allow Mixer
-    source = Instance(SamplesGenerator(),SamplesGenerator) 
+    source = Instance(PointSource(),PointSource,
+            desc="source that gets mirrored by Ism")
 
     room = Trait(Room,
             desc="room with list of wall planes")
 
-    #sources = Property(desc="mirrored sources")
-    sources = Property()
+    sources = Property(desc="List of mirrored sources.")
 
     sample_freq = Delegate('source','sample_freq') 
 
@@ -260,10 +247,12 @@ class IsmRealImages(SamplesGenerator):
 
 class Ism(SamplesGenerator):
     """
-    Mirrors the source on walls of room and writes them to the list sources.
+    Image source model for beamforming with signal treatment.
+    In contrast to the IsmRealImages class, the sources doesn't get mirrored "physicaly". 
+    Instead, there is just one source signal convoluted with the impulse response
+    from the Ism. This way there is more signal treatment possible and the beamforming happens
+    just on one treated source.
     J. Allen and D. Berkeley, "Image method for efficiently simulating small-room acoustics"
-    with negative reflection coefficients adapted by
-    E. Lehmann and A. Johansson, "Prediction of energy decay in room impulse responses simulated with an image-source model"
     """
     room = Trait(Room,
             desc="room with list of wall planes")
@@ -278,8 +267,6 @@ class Ism(SamplesGenerator):
     #: Location of source in (`x`, `y`, `z`) coordinates (left-oriented system).
     loc = Tuple((0.0, 0.0, 1.0),
         desc="source location")
-
-    #rp = Property()
 
     #: Number of channels in output, is set automatically / 
     #: depends on used microphone geometry.
@@ -312,22 +299,6 @@ class Ism(SamplesGenerator):
 
     # --- End of backwards compatibility traits --------------------------------------
 
-    """
-    def _get_rp(self):
-        x_p = (1-2*q)*self.source.loc[0]
-        y_p = (1-2*j)*self.source.loc[1]
-        z_p = (1-2*k)*self.source.loc[2]
-        mirror_loc = array([[x_p], [y_p], [z_p]])
-        rp = []
-        for wall in self.room.walls:
-            mirror_loc = self.mirror_loc(wall.n0,wall.point1)
-            rp = array([[mirror_loc[0]],[mirror_loc[1]],[mirror_loc[2]]])
-            #exclude
-            #rptemp = self.env._r(mirror_loc,self.mics.mpos)
-            #rp.append(rptemp)
-        return rp
-    """
-
     def plane_distance(self,point,planepoint,n0):
         """
         Calculates the distance from a point to a plane in hesse normal form.
@@ -354,12 +325,6 @@ class Ism(SamplesGenerator):
         mirror_loc = tuple(mirror_loc)
         return mirror_loc    
     
-    """"
-    def calc_tau(self,loc):
-        d = self.env._r(loc, 
-        return d/self.env.c
-    
-    """
     def impulse_response(self):
         pass
 
@@ -368,14 +333,15 @@ class Ism(SamplesGenerator):
 
 class PointSourceIsm(Ism):
     """
-    Class to define a fixed point source with an arbitrary signal.
-    This can be used in simulations.
+    Class to define a fixed point source including an arbitrary signal.
+    This can be used for beamforming a simulated or loaded signal in a simulated room.
     
     The output is being generated via the :meth:`result` generator.
     """
     
     #:  Emitted signal, instance of the :class:`~acoular.signals.SignalGenerator` class.
-    signal = Trait(SignalGenerator)
+    signal = Trait(SignalGenerator,
+            desc="signal to detect in room")
     
     #: Start time of the signal in seconds, defaults to 0 s.
     start_t = Float(0.0,
@@ -401,21 +367,9 @@ class PointSourceIsm(Ism):
     def _get_numsamples(self):
         return self.signal.numsamples*self.up+self.impulse_response(self.loc).shape[0]-1
 
-    """
-    # internal identifier
-    digest = Property( 
-        depends_on = ['mics.digest', 'signal.digest', 'loc', \
-     'env.digest', 'start_t', 'start', 'up', '__class__'], 
-    )
-               
-    @cached_property
-    def _get_digest( self ):
-        return digest(self)
-    """
-
     def impulse_response(self,loc):
         """
-        Calculates impulse response of a given source location in relation to a room.
+        Calculates impulse response of a given source location in relation to a given room.
         """
         #hdirect
         h = self.calc_h(loc)
@@ -423,8 +377,8 @@ class PointSourceIsm(Ism):
         #add reflexions to h and append size of h with longest reflexion size
         for wall in self.room.walls:
             locm = self.mirror_loc(loc,wall.n0,wall.point1)
-            print(locm)
             hreflexion = self.calc_h(locm)
+            #adapt size to longest hreflexion
             if hlen<hreflexion.shape[0]:
                 dim1 = hreflexion.shape[0]-hlen
                 ext = zeros((dim1,self.numchannels))
@@ -446,11 +400,11 @@ class PointSourceIsm(Ism):
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
         #travel time index
         ind = (rm/self.env.c)*self.sample_freq*self.up
-        #TODO: Just use ind as it is the same  as ind_max
-        #ind_max = array(0.5+ind,dtype=int64)
+        #future len of h
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)
         #TODO: Add alpha to amp
+        #beta = sqrt(1-self.room.walls[ind].alpha)
         amp = 1/rm
         h = zeros((ind_max+1, self.numchannels))
         ind = array(0.5+ind,dtype=int64)
@@ -479,20 +433,20 @@ class PointSourceIsm(Ism):
         signal = self.signal.usignal(self.up)
         out = zeros((num, self.numchannels))
         h = self.impulse_response(self.loc)
+        #y.shape = len(convolved_signal)*numchannels
         y = empty((self.numsamples,self.numchannels))
+        #convolve signal with impulse response
         for j in range(0,self.numchannels):
             y[:,j] = convolve(signal,h[:,j])
-        # distances
-        #rm = self.env._r(array(self.loc).reshape((3, 1)), self.mics.mpos)
-        # emission time relative to start_t (in samples) for first sample
-        #ind = (-rm/self.env.c-self.start_t+self.start)*self.sample_freq   
-        #ind_max = abs(ind).max(1)
+        #in-block iterator
         i = 0
         ind = 0
+        #start and stop declarations
         ts = self.start_t*self.sample_freq
         ts = rint(ts).astype(int)
         tm = self.start*self.sample_freq
         tm = rint(tm).astype(int)
+        #length of downsampled and with impulse response convolved signal + start_t time
         n = y.shape[0]/self.up + ts
         while n:
             n -= 1
@@ -547,14 +501,14 @@ class MovingPointSourceIsm( PointSourceIsm ):
     trajectory = Trait(Trajectory, 
         desc="trajectory of the source")
 
+    numsamples = Delegate("signal")
+
     # internal identifier
     digest = Property( 
         depends_on = ['mics.digest', 'signal.digest', 'loc', \
          'env.digest', 'start_t', 'start', 'trajectory.digest', '__class__'], 
         )
                
-    #TODO: get numsamples
-
     @cached_property
     def _get_digest( self ):
         return digest(self)
@@ -964,6 +918,25 @@ class LoadSignal( SignalGenerator ):
         return resample(self.signal(), self.sample_freq, factor*self.sample_freq)
 
 class FiniteImpulseResponse(HasPrivateTraits):
+
+    h = Property()
+"""
+class FiniteImpulseResponseMeasurement(FiniteImpulseResponse):
+    #normalized impulse response 
+    h = Property()
+
+    def _get_h(self):
+        #normalized length of impulse responses with hframe
+        h = []
+        for i in range (0,self.impulse_response.shape[1]):
+            hchannel = array(self.impulse_response[self.hframe[i][0]:self.hframe[i][-1]+1,i])
+            h.insert(i,hchannel)
+        return h
+"""
+    
+
+class FiniteImpulseResponseSimulation(FiniteImpulseResponse):
+
     ism = Trait(Ism(),Ism)
 
     #loc = Delegate('ism','loc')
@@ -989,17 +962,62 @@ class FiniteImpulseResponse(HasPrivateTraits):
             hframe.insert(i,hframechannel[0])
         return hframe
     
+    #impulse reponses array for each microfon input
+    harray = Property()
     #normalized impulse response 
     h = Property()
 
+    def choose_channel(self,h):
+        #choose two impulse responses from microfon array that don't have the same zeros
+        hlenchannel1 = len(h)
+        hlenchannel2 = hlenchannel1
+        while hlenchannel1:
+            hlenchannel1 -=1
+            while hlenchannel2:
+                hlenchannel2 -= 1
+                if len(h[hlenchannel1]) != len(h[hlenchannel2]):
+                    break
+            else:
+                hlenchannel2 = len(h)
+                continue
+            break
+        if len(h[hlenchannel1]) != len(h[hlenchannel2]):
+            return hlenchannel1, hlenchannel2
+        else:
+            raise Exception("To invert the FIR system two impulse responses with different zeros are mandatory") 
+
     @property_depends_on('impulse_response,hframe')
-    def _get_h(self):
-        #normalized length of impulse responses with hframe
-        h = []
+    def _get_harray(self):
+        #list with impulse responses of each available microfon channel
+        harray = []
         for i in range (0,self.impulse_response.shape[1]):
             hchannel = array(self.impulse_response[self.hframe[i][0]:self.hframe[i][-1]+1,i])
-            h.insert(i,hchannel)
+            harray.insert(i,hchannel)
+        return harray
+
+    @property_depends_on('harray')
+    def _get_h(self):
+        #list with impulse responses of 2 chosen microfon channels
+        h = []
+        [hchannel1, hchannel2] = self.choose_channel(self.harray)
+        print("Channel ",hchannel1," and channel ",hchannel2," selected for multiple input multiple output inverse filtering.")
+        h.insert(0,self.harray[hchannel1])
+        h.insert(1,self.harray[hchannel2])
         return h
+
+    def result(self, num=128):
+        hframe = self.hframe
+        [hchannel1, hchannel2] = self.choose_channel(self.harray) 
+        hframe1 = hframe[hchannel1]
+        hframe2 = hframe[hchannel2]
+
+        for item in self.ism.result(self.ism.numsamples):
+            res = []
+            restemp = item[hframe1[0]:,hchannel1]
+            res.insert(0,restemp)
+            restemp = item[hframe2[0]:,hchannel2]
+            res.insert(1,restemp)
+            yield res
 
 class SyntheticVerb(PointSourceIsm):
     
@@ -1067,6 +1085,7 @@ class Mint(HasPrivateTraits):
 
     ism = Trait(Ism(),Ism)
 
+    """
     h = Property()
 
     @property_depends_on('fir')
@@ -1091,18 +1110,17 @@ class Mint(HasPrivateTraits):
             return hlenchannel1, hlenchannel2
         else:
             raise Exception("To invert the FIR system two impulse responses with different zeros are mandatory") 
+    """
 
     g = Property()
     
-    @property_depends_on('h')
+    @property_depends_on('fir')
     def _get_g(self):
-        h = self.h
-
-        [hchannel1,hchannel2] = self.choose_channel()
+        [h1,h2] = self.fir.h
 
         #Duration of impulse Responses channel 1 and 2
-        m = len(h[hchannel1])-1
-        n = len(h[hchannel2])-1
+        m = len(h1)-1
+        n = len(h2)-1
 
         #number of filter coefficients for inverse filtering channel 1 and 2
         i = n-1
@@ -1117,10 +1135,10 @@ class Mint(HasPrivateTraits):
 
         #mint impulse response matrices
         gtemp1 = zeros(i)
-        gtemp1 = append(h[hchannel1],gtemp1)
+        gtemp1 = append(h1,gtemp1)
         g1 = gtemp1
         gtemp2 = zeros(j)
-        gtemp2 = append(h[hchannel2],gtemp2)
+        gtemp2 = append(h2,gtemp2)
         g2 = gtemp2
 
         ind = i
@@ -1149,17 +1167,12 @@ class Mint(HasPrivateTraits):
     
     @property_depends_on('fir,ism,g')
     def _get_yrecovered(self):
-        [hchannel1,hchannel2] = self.choose_channel()
-        print("Channel ",hchannel1," and channel ",hchannel2," selected for multiple input multiple output inverse filtering.")
         [hfilt1,hfilt2] = self.g
-        hframe = self.fir.hframe
-        hframe1 = hframe[hchannel1]
-        hframe2 = hframe[hchannel2]
 
-        for item in self.ism.result(self.ism.numsamples):
-            yrecovered = convolve(hfilt1,item[hframe1[0]:,hchannel1])
+        for item in self.fir.result():
+            yrecovered = convolve(hfilt1,item[0])
             yrecovered = yrecovered[::self.ism.up]
-            yrecovered2 = convolve(hfilt2,item[hframe2[0]:,hchannel2])
+            yrecovered2 = convolve(hfilt2,item[1])
             yrecovered2 = yrecovered2[::self.ism.up]
 
         if len(yrecovered)>len(yrecovered2):
@@ -1173,3 +1186,54 @@ class Mint(HasPrivateTraits):
 
         yrecov = yrecovered + yrecovered2
         return yrecov
+
+class EvaluateMint(HasPrivateTraits):
+    
+    ts = Trait(MaskedTimeSamples(),MaskedTimeSamples)
+
+    #lsignal = Instance(LoadSignal(), LoadSignal)
+    sample_freq = Float()
+
+    def ir_ess(self,x,channel):
+        #get data
+        for i in self.ts.result(self.ts.numsamples_total):
+            ichannel = i[:,channel]
+            ichannelmax = max(ichannel)
+            ichannel = 0.95*(ichannel/ichannelmax)
+            iabs = abs(ichannel)
+            ilevel = ma.log10(iabs)
+            ilevel = ilevel.filled(-15)
+            ilevel *= 20
+            indices = nonzero(ilevel>-30)
+            y = ichannel[indices[0][0]:indices[0][-1]]
+
+        #INVERSE FILTER
+        #x = lsignal.signal()
+        xabs = abs(x)
+        xlevel = ma.log10(xabs)
+        xlevel = xlevel.filled(-15)
+        xlevel *= 20
+        indices = nonzero(xlevel>-30)
+        x = x[indices[0][0]:indices[0][-1]]
+        xinv = flip(x)
+
+        #Kompensation
+        T = len(xinv)/self.sample_freq
+        t = linspace(0,T,len(xinv))
+        komp = 1/exp((log(20000/80)*t)/T)
+
+        xinv = xinv*komp
+        lendiff = len(xinv)-len(y)
+        xinv = append(xinv,zeros(len(xinv)))
+        zerodiff = zeros(lendiff)
+        y = append(y,zerodiff)
+        y = append(y,zeros(len(y)))
+
+        h = convolve(xinv,y)
+        hmax = max(abs(h))
+        indmax = argmax(abs(h))
+        h = h/hmax
+        h = h[indmax:]
+        return h
+     
+
