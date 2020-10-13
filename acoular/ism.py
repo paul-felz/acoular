@@ -3,9 +3,10 @@ from resampy import resample
 from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
 ndarray, rint, empty, int64, ones, append, floor, insert, column_stack, log10, \
-nonzero, flip, linspace, exp, log, ma, argmax
+nonzero, flip, linspace, exp, log, ma, argmax, mean, std, real, flipud
 from numpy.linalg import norm, inv
-from scipy.signal import convolve
+from numpy.fft import fft, ifft, fft2, ifft2, fftshift
+from scipy.signal import convolve, correlate
 from scipy.io import wavfile
 
 from traits.api import HasTraits, HasPrivateTraits, Float, Int, ListInt, ListFloat, \
@@ -174,7 +175,7 @@ class IsmRealImages(SamplesGenerator):
     Mirrors the point source "pyhsicaly" behind walls of room and writes them to the list sources.
     J. Allen and D. Berkeley, "Image method for efficiently simulating small-room acoustics"
     """
-    source = Instance(PointSource(),PointSource,
+    source = Instance(SamplesGenerator(),SamplesGenerator,
             desc="source that gets mirrored by Ism")
 
     room = Trait(Room,
@@ -341,7 +342,7 @@ class PointSourceIsm(Ism):
     
     #:  Emitted signal, instance of the :class:`~acoular.signals.SignalGenerator` class.
     signal = Trait(SignalGenerator,
-            desc="signal to detect in room")
+            desc="detectable signal in room")
     
     #: Start time of the signal in seconds, defaults to 0 s.
     start_t = Float(0.0,
@@ -645,7 +646,14 @@ class MovingPointSourceIsm( PointSourceIsm ):
         convsignaln = self.numsamples
         y = zeros((convsignaln,self.numchannels))
         ytemp = zeros((convsignaln,self.numchannels))
-        n = self.numsamples
+
+        #determine length n of result function (either signal length or trajectory length)
+        numtrajectory = list(self.trajectory.points.items())[-1][0]
+        if numtrajectory<=self.numsamples/self.sample_freq:
+            n=numtrajectory*self.numsamples
+        else:
+            n = self.numsamples
+
         while n:
             h = self.impulse_response(epslim,t)
             ylen = self.numsamples+h.shape[0]
@@ -1196,6 +1204,7 @@ class EvaluateMint(HasPrivateTraits):
 
     def ir_ess(self,x,channel):
         #get data
+        #TODO: i = next(self.ts.result(self.ts.numsamples_total))
         for i in self.ts.result(self.ts.numsamples_total):
             ichannel = i[:,channel]
             ichannelmax = max(ichannel)
@@ -1236,4 +1245,61 @@ class EvaluateMint(HasPrivateTraits):
         h = h[indmax:]
         return h
      
+    def correlate_time_series(record1,record2):
+        #normalize and cut
+        #record1max = max(record1)                       
+        #record1 = 0.95*(record1/record1max)                                 
+        record1abs = abs(record1)                                                  
+        record1level = ma.log10(record1abs)                                        
+        record1level = record1level.filled(-15)                                    
+        record1level *= 20                                                         
+        indices1 = nonzero(record1level>-30)                                       
+        record1 = record1[indices1[0][0]:indices1[0][-1]] 
+        
+        #record2max = max(record2)                                               
+        #record2 = 0.95*(record2/record2max)                                 
+        record2abs = abs(record2)                                               
+        record2level = ma.log10(record2abs)                                     
+        record2level = record2level.filled(-15)                                 
+        record2level *= 20                                                  
+        indices2 = nonzero(record2level>-30)                                
+        record2 = record2[indices2[0][0]:indices2[0][-1]] 
 
+        lendiff = len(record1)-len(record2)                                     
+        padding = zeros(abs(lendiff))                                           
+        if lendiff>0:                                                       
+            record2 = append(record2,padding)                               
+        elif lendiff<0:                                                     
+            record1 = append(record1,padding)
+            
+        record1 = (record1 - mean(record1)) / (std(record1) * len(record1))
+        record2 = (record2 - mean(record2)) / (std(record2))
+        co = correlate(record1,record2,"full")
+        return max(co)
+
+    def correlate_series(record1,record2):
+        a = record1
+        b = record2
+        #b = zeros(data_length * 2)
+
+        #breakpoint()
+        #b[data_length/2:data_length/2+data_length] = record2 # This works for data_length being even
+
+        # Do an array flipped convolution, which is a correlation.
+        c = convolve(b, a[::-1], mode='full') 
+        return max(c)
+
+    def cross_correlation_using_fft(x, y):
+        f1 = fft(x)
+        f2 = fft(flipud(y))
+        cc = real(ifft(f1 * f2))
+        return fftshift(cc)
+
+    # shift < 0 means that y starts 'shift' time steps before x # shift > 0 means that y starts 'shift' time steps after x
+    def compute_shift(x, y):
+        assert len(x) == len(y)
+        c = EvaluateMint.cross_correlation_using_fft(x, y)
+        assert len(c) == len(x)
+        zero_index = int(len(x) / 2) - 1
+        shift = zero_index - argmax(c)
+        return shift
