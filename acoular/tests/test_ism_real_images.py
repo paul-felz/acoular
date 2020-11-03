@@ -41,7 +41,6 @@ class acoular_ism_test(unittest.TestCase):
         self.assertAlmostEqual(sum(ism.sources[0].loc),sum(original),3)
         self.assertAlmostEqual(sum(ism.sources[1].loc),sum(reflect),3)
 
-    #TODO: TEST result()
     #TODO: second order reflections
 
 if "__main__" == __name__:

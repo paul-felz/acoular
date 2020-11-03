@@ -21,8 +21,8 @@ mg = MicGeom( from_file=micgeofile )
 
 n1 = WNoiseGenerator( sample_freq=sfreq, numsamples=nsamples, seed=1 )
 p1 = PointSource( signal=n1, mics=mg, loc=(0.2,0.0,0.0) )
-#p2 = PointSource( signal=n1, mics=mg, loc=(0.4,0.0,0.0) )
-#pa = SourceMixer( sources=[p1, p2])
+p2 = PointSource( signal=n1, mics=mg, loc=(0.4,0.0,0.0) )
+pa = SourceMixer( sources=[p1, p2])
 
 #Create Wall
 onewall= Room()
@@ -32,7 +32,7 @@ onewall.create_wall_orientation(position=0.3,orientation=Orientation.X,alpha=0.0
 #ism = IsmRealImages(source=p1,room=onewall)
 ism = PointSourceIsm(signal=n1, mics=mg, loc=(0.2,0,0.0), room=onewall, up=16)
 
-ts1 = MaskedTimeInOut(source=p1)
+ts1 = MaskedTimeInOut(source=pa)
 ps1 = PowerSpectra( time_data=ts1, block_size=128, window='Hanning' ) 
 
 ts2 = MaskedTimeInOut(source=ism)

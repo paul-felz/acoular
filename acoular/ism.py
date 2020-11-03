@@ -1,9 +1,11 @@
 import warnings
+import h5py
 from resampy import resample
 from numpy import transpose, array, zeros, concatenate, delete, where, floor, dot, subtract, \
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
 ndarray, rint, empty, int64, ones, append, floor, insert, column_stack, log10, \
-nonzero, flip, linspace, exp, log, ma, argmax, mean, std, real, flipud
+nonzero, flip, linspace, exp, log, ma, argmax, mean, std, real, flipud, sinc, ceil, \
+arange
 from numpy.linalg import norm, inv
 from numpy.fft import fft, ifft, fft2, ifft2, fftshift
 from scipy.signal import convolve, correlate
@@ -393,27 +395,60 @@ class PointSourceIsm(Ism):
             h += hreflexion
         return h
 
+    def hanning_filt(self,t,tw,fc):
+        """
+        Calculates the hanning window filter function to replace the delta impulse of h.
+        """
+        hanningfilt = 1/2*(1+cos(2*pi*t/tw))*sinc(2*pi*fc*t)
+        return hanningfilt
+
     def calc_h(self,loc):
         """
         Calculates h matrix for a given position in relation to microphones.
         """
         #travel distance
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
+        #discrete impulse response preparation
+        twhalf = 0.002 #twhalf = 2ms Peterson 1986
+        twhalfsamples = int(ceil(twhalf*self.sample_freq*self))
         #travel time index
         ind = (rm/self.env.c)*self.sample_freq*self.up
         #future len of h
         ind_max = rint(ind).max()
-        ind_max = ind_max.astype(int)
+        ind_max = ind_max.astype(int)+twhalfsamples
         #TODO: Add alpha to amp
         #beta = sqrt(1-self.room.walls[ind].alpha)
         amp = 1/rm
         h = zeros((ind_max+1, self.numchannels))
+        t = arange(-twhalfsamples,twhalfsamples,1)/self.sample_freq
         ind = array(0.5+ind,dtype=int64)
         if ind.size == 1:
             h[ind[0],0] = amp[0]
+            if ind[0]-twhalfsamples > 0:          #start with 0 
+                start_impulse=-twhalfsamples+ind[0,i]
+                tind = 0
+            else:
+                start_impulse=0
+                tind = abs(ind[0]-twhalfsamples)
+            for j in range(start_impulse,ind[0]+twhalfsamples):  #hanning func -tw/2<t<tw/2
+                hanning = self.hanning_filt(t[tind],2*twhalf,self.sample_freq/2)
+                h[j,i]=amp[0,i]*hanning
+            #TODO: Unittest single impulse
         else:
             for i in range(0,ind.size):
-                h[ind[0,i],i] = amp[0,i]
+                if ind[0,i]-twhalfsamples > 0:          #start with 0 
+                    start_impulse=-twhalfsamples+ind[0,i]
+                    tind = 0
+                else:
+                    start_impulse=0
+                    tind = abs(ind[0,i]-twhalfsamples)
+                for j in range(start_impulse,ind[0,i]+twhalfsamples):  #hanning func -tw/2<t<tw/2
+
+                    hanning = self.hanning_filt(t[tind],2*twhalf,self.sample_freq/2)
+                    h[j,i]=amp[0,i]*hanning
+                    tind +=1
+                    #h[j,i]=hanning
+                #h[ind[0,i],i] = amp[0,i]
         return h
 
     def result(self, num=128):
@@ -940,7 +975,32 @@ class FiniteImpulseResponseMeasurement(FiniteImpulseResponse):
             hchannel = array(self.impulse_response[self.hframe[i][0]:self.hframe[i][-1]+1,i])
             h.insert(i,hchannel)
         return h
+
 """
+class FiniteImpulseResponseMeas(FiniteImpulseResponse):
+    up = Int()
+
+    impulse_response1 = Array()
+    impulse_response2 = Array()
+
+    measurement = List()
+
+    h = Property()
+    def _get_h(self):
+        h = []
+        h.insert(0,self.impulse_response1)
+        h.insert(1,self.impulse_response2)
+        return h
+
+    def result(self):
+        res = []
+        for item in range(0,1):
+            restemp = self.measurement[item]
+            res.insert(item,restemp)
+            restemp = self.measurement[item+1]
+            res.insert(item+1,restemp)
+            yield res
+
     
 
 class FiniteImpulseResponseSimulation(FiniteImpulseResponse):
@@ -950,6 +1010,8 @@ class FiniteImpulseResponseSimulation(FiniteImpulseResponse):
     #loc = Delegate('ism','loc')
     loc = Tuple((0.0, 0.0, 1.0),
         desc="source location")
+
+    up = Delegate('ism','up')
 
     #simulated impulse response
     impulse_response = Property()
@@ -1013,7 +1075,7 @@ class FiniteImpulseResponseSimulation(FiniteImpulseResponse):
         h.insert(1,self.harray[hchannel2])
         return h
 
-    def result(self, num=128):
+    def result(self):
         hframe = self.hframe
         [hchannel1, hchannel2] = self.choose_channel(self.harray) 
         hframe1 = hframe[hchannel1]
@@ -1091,7 +1153,7 @@ class Mint(HasPrivateTraits):
 
     fir = Trait(FiniteImpulseResponse(),FiniteImpulseResponse)
 
-    ism = Trait(Ism(),Ism)
+    #ism = Trait(Ism(),Ism)
 
     """
     h = Property()
@@ -1173,15 +1235,16 @@ class Mint(HasPrivateTraits):
 
     yrecovered = Property()
     
-    @property_depends_on('fir,ism,g')
+    @property_depends_on('fir,g')
     def _get_yrecovered(self):
         [hfilt1,hfilt2] = self.g
-
         for item in self.fir.result():
             yrecovered = convolve(hfilt1,item[0])
-            yrecovered = yrecovered[::self.ism.up]
+            print("3")
+            yrecovered = yrecovered[::self.fir.up]
+            print("4")
             yrecovered2 = convolve(hfilt2,item[1])
-            yrecovered2 = yrecovered2[::self.ism.up]
+            yrecovered2 = yrecovered2[::self.fir.up]
 
         if len(yrecovered)>len(yrecovered2):
             lendiff = len(yrecovered)-len(yrecovered2)
@@ -1245,6 +1308,7 @@ class EvaluateMint(HasPrivateTraits):
         h = h[indmax:]
         return h
      
+    """
     def correlate_time_series(record1,record2):
         #normalize and cut
         #record1max = max(record1)                       
@@ -1288,7 +1352,7 @@ class EvaluateMint(HasPrivateTraits):
         # Do an array flipped convolution, which is a correlation.
         c = convolve(b, a[::-1], mode='full') 
         return max(c)
-
+    """
     def cross_correlation_using_fft(x, y):
         f1 = fft(x)
         f2 = fft(flipud(y))
@@ -1300,6 +1364,25 @@ class EvaluateMint(HasPrivateTraits):
         assert len(x) == len(y)
         c = EvaluateMint.cross_correlation_using_fft(x, y)
         assert len(c) == len(x)
-        zero_index = int(len(x) / 2) - 1
+        #zero_index = int(len(x) / 2) - 1
+        zero_index = int(len(x) / 2)-1
         shift = zero_index - argmax(c)
         return shift
+
+    def cut_around(record):
+        record1abs = abs(record)                                                  
+        record1level = ma.log10(record1abs)                                        
+        record1level = record1level.filled(-15)                                    
+        record1level *= 20                                                         
+        indices1 = nonzero(record1level>-30)                                       
+        record = record[indices1[0][0]:indices1[0][-1]] 
+        return record
+
+    def fit_length(record1,record2):
+        #fit sizes of recordings
+        lendiff = len(record1)-len(record2)                                                                                                                        
+        padding = zeros(abs(lendiff))                                                                                                                            
+        record1 = append(record1,padding)    
+        return record1
+
+
