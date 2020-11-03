@@ -47,7 +47,7 @@ class Wall(HasPrivateTraits):
     Base class for general wall in Hesse normal form 
     """
     alpha = Float(0.0,
-            desc="apsorption coefficient")
+            desc="absorption coefficient")
 
     n0 = Property()
     
@@ -380,7 +380,9 @@ class PointSourceIsm(Ism):
         #add reflexions to h and append size of h with longest reflexion size
         for wall in self.room.walls:
             locm = self.mirror_loc(loc,wall.n0,wall.point1)
-            hreflexion = self.calc_h(locm)
+            alpha = wall.alpha
+            beta = sqrt(1-alpha)
+            hreflexion = beta * self.calc_h(locm)
             #adapt size to longest hreflexion
             if hlen<hreflexion.shape[0]:
                 dim1 = hreflexion.shape[0]-hlen
@@ -416,7 +418,6 @@ class PointSourceIsm(Ism):
         #future len of h
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)+twhalfsamples
-        #TODO: Add alpha to amp
         #beta = sqrt(1-self.room.walls[ind].alpha)
         amp = 1/rm
         h = zeros((ind_max+1, self.numchannels))
