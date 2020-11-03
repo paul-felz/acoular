@@ -410,7 +410,7 @@ class PointSourceIsm(Ism):
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
         #discrete impulse response preparation
         twhalf = 0.002 #twhalf = 2ms Peterson 1986
-        twhalfsamples = int(ceil(twhalf*self.sample_freq))
+        twhalfsamples = int(ceil(twhalf*self.sample_freq)*self.up)
         #travel time index
         ind = (rm/self.env.c)*self.sample_freq*self.up
         #future len of h
@@ -420,7 +420,7 @@ class PointSourceIsm(Ism):
         #beta = sqrt(1-self.room.walls[ind].alpha)
         amp = 1/rm
         h = zeros((ind_max+1, self.numchannels))
-        t = arange(-twhalfsamples,twhalfsamples,1)/self.sample_freq
+        t = arange(-twhalfsamples,twhalfsamples,1)/(self.sample_freq*self.up)
         ind = array(0.5+ind,dtype=int64)
         if ind.size == 1:
             h[ind[0],0] = amp[0]
