@@ -410,7 +410,7 @@ class PointSourceIsm(Ism):
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
         #discrete impulse response preparation
         twhalf = 0.002 #twhalf = 2ms Peterson 1986
-        twhalfsamples = int(ceil(twhalf*self.sample_freq*self))
+        twhalfsamples = int(ceil(twhalf*self.sample_freq))
         #travel time index
         ind = (rm/self.env.c)*self.sample_freq*self.up
         #future len of h
