@@ -1,4 +1,4 @@
-"""Verification Test 2 for Image Source Method
+"""Verification Test 1 for Image Source Method (IsmRealImages)
 
 Generate walls and check for mirror sources at right places.
 

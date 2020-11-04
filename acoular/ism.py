@@ -412,28 +412,30 @@ class PointSourceIsm(Ism):
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
         #discrete impulse response preparation
         twhalf = 0.002 #twhalf = 2ms Peterson 1986
-        twhalfsamples = int(ceil(twhalf*self.sample_freq)*self.up)
+        twhalfsamples = int(ceil(twhalf*self.sample_freq*self.up))
         #travel time index
         ind = (rm/self.env.c)*self.sample_freq*self.up
         #future len of h
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)+twhalfsamples
-        #beta = sqrt(1-self.room.walls[ind].alpha)
+        ind = array(0.5+ind,dtype=int64)
+        #distance factor
         amp = 1/rm
+        #preparation of arrays
         h = zeros((ind_max+1, self.numchannels))
         t = arange(-twhalfsamples,twhalfsamples,1)/(self.sample_freq*self.up)
-        ind = array(0.5+ind,dtype=int64)
         if ind.size == 1:
-            h[ind[0],0] = amp[0]
+            #h[ind[0],0] = amp[0]
             if ind[0]-twhalfsamples > 0:          #start with 0 
-                start_impulse=-twhalfsamples+ind[0,i]
+                start_impulse=-twhalfsamples+ind[0]
                 tind = 0
             else:
                 start_impulse=0
                 tind = abs(ind[0]-twhalfsamples)
             for j in range(start_impulse,ind[0]+twhalfsamples):  #hanning func -tw/2<t<tw/2
                 hanning = self.hanning_filt(t[tind],2*twhalf,self.sample_freq/2)
-                h[j,i]=amp[0,i]*hanning
+                h[j,0]=amp[0]*hanning
+                tind+=1
             #TODO: Unittest single impulse
         else:
             for i in range(0,ind.size):
@@ -445,11 +447,9 @@ class PointSourceIsm(Ism):
                     tind = abs(ind[0,i]-twhalfsamples)
                 for j in range(start_impulse,ind[0,i]+twhalfsamples):  #hanning func -tw/2<t<tw/2
 
-                    hanning = self.hanning_filt(t[tind],2*twhalf,self.sample_freq/2)
+                    hanning = self.hanning_filt(t[tind],2*twhalf,(self.sample_freq)/2)
                     h[j,i]=amp[0,i]*hanning
                     tind +=1
-                    #h[j,i]=hanning
-                #h[ind[0,i],i] = amp[0,i]
         return h
 
     def result(self, num=128):

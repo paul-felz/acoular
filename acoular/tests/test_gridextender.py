@@ -1,5 +1,5 @@
 """
-Verification Test 4 for Image Source Method
+Verification Test for GridExtender in Dereverberation
 
 Generate a wall and a grid and check if the mirror grid is at right place.
 

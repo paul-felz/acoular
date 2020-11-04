@@ -1,4 +1,4 @@
-"""Verification Test 1 for Image Source Method
+"""Verification Test for Wall Creation
 
 Generate 3 Walls with different Classmethods and check their attributes.
 

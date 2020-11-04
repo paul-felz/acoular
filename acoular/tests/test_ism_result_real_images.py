@@ -1,4 +1,4 @@
-"""Verification Test 3 for Image Source Method
+"""Verification Test 2 for Image Source Method (IsmRealImages)
 
 Generate a wall and check if the spectra of two source mixer point sources are equal to one mirrored source with the same locations.
 
@@ -39,7 +39,7 @@ ps1 = PowerSpectra( time_data=ts1, block_size=128, window='Hanning' )
 ts2 = MaskedTimeInOut(source=ism)
 ps2 = PowerSpectra( time_data=ts2, block_size=128, window='Hanning' ) 
 
-class acoular_ism_result_test(unittest.TestCase):
+class acoular_ism_result_real_images_test(unittest.TestCase):
 
     def test_result_csm(self):
         for i in range(ps1.csm.shape[0]):
