@@ -248,7 +248,7 @@ class IsmRealImages(SamplesGenerator):
                 break
 
 
-class Ism(SamplesGenerator):
+class Ism(PointSource):
     """
     Image source model for beamforming with signal treatment.
     In contrast to the IsmRealImages class, the sources doesn't get mirrored "physicaly". 
@@ -259,48 +259,6 @@ class Ism(SamplesGenerator):
     """
     room = Trait(Room,
             desc="room with list of wall planes")
-
-    mics = Trait(MicGeom,
-            desc="microphone geometry")
-    
-    #: :class:`~acoular.environments.Environment` or derived object, 
-    #: which provides information about the sound propagation in the medium.
-    env = Trait(Environment(), Environment)
-
-    #: Location of source in (`x`, `y`, `z`) coordinates (left-oriented system).
-    loc = Tuple((0.0, 0.0, 1.0),
-        desc="source location")
-
-    #: Number of channels in output, is set automatically / 
-    #: depends on used microphone geometry.
-    numchannels = Delegate('mics','num_mics')
-
-    # --- List of backwards compatibility traits and their setters/getters -----------
-
-    # Microphone locations.
-    # Deprecated! Use :attr:`mics` trait instead.
-    mpos = Property()
-    
-    def _get_mpos(self):
-        return self.mics
-    
-    def _set_mpos(self, mpos):
-        warn("Deprecated use of 'mpos' trait. ", Warning, stacklevel = 2)
-        self.mics = mpos
-        
-    # The speed of sound.
-    # Deprecated! Only kept for backwards compatibility. 
-    # Now governed by :attr:`env` trait.
-    c = Property()
-    
-    def _get_c(self):
-        return self.env.c
-    
-    def _set_c(self, c):
-        warn("Deprecated use of 'c' trait. ", Warning, stacklevel = 2)
-        self.env.c = c
-
-    # --- End of backwards compatibility traits --------------------------------------
 
     def plane_distance(self,point,planepoint,n0):
         """
@@ -341,27 +299,6 @@ class PointSourceIsm(Ism):
     
     The output is being generated via the :meth:`result` generator.
     """
-    
-    #:  Emitted signal, instance of the :class:`~acoular.signals.SignalGenerator` class.
-    signal = Trait(SignalGenerator,
-            desc="detectable signal in room")
-    
-    #: Start time of the signal in seconds, defaults to 0 s.
-    start_t = Float(0.0,
-        desc="signal start time")
-    
-    #: Start time of the data aquisition at microphones in seconds, 
-    #: defaults to 0 s.
-    start = Float(0.0,
-        desc="sample start time")
-
-    #: Upsampling factor, internal use, defaults to 16.
-    up = Int(16, 
-        desc="upsampling factor")         
-    
-    #: Sampling frequency of the signal, is set automatically / 
-    #: depends on :attr:`signal`.
-    sample_freq = Delegate('signal') 
 
     #: Number of samples, is set automatically / 
     #: depends on :attr:`signal`.
