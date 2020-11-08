@@ -5,9 +5,9 @@ from numpy import transpose, array, zeros, concatenate, delete, where, floor, do
 pi, complex128, float32, sin, cos, isscalar, cross, sqrt, absolute, einsum, newaxis, \
 ndarray, rint, empty, int64, ones, append, floor, insert, column_stack, log10, \
 nonzero, flip, linspace, exp, log, ma, argmax, mean, std, real, flipud, sinc, ceil, \
-arange
+arange, divide
 from numpy.linalg import norm, inv
-from numpy.fft import fft, ifft, fft2, ifft2, fftshift
+from numpy.fft import fft, ifft, fft2, ifft2, fftshift, rfft, fftfreq
 from scipy.signal import convolve, correlate
 from scipy.io import wavfile
 
@@ -995,12 +995,11 @@ class FiniteImpulseResponseMeas(FiniteImpulseResponse):
 
     def result(self):
         res = []
-        for item in range(0,1):
-            restemp = self.measurement[item]
-            res.insert(item,restemp)
-            restemp = self.measurement[item+1]
-            res.insert(item+1,restemp)
-            yield res
+        restemp = self.measurement[0]
+        res.insert(0,restemp)
+        restemp = self.measurement[1]
+        res.insert(1,restemp)
+        yield res
 
     
 
@@ -1270,9 +1269,11 @@ class EvaluateMint(HasPrivateTraits):
         #get data
         #TODO: i = next(self.ts.result(self.ts.numsamples_total))
         for i in self.ts.result(self.ts.numsamples_total):
+            #read and normalize
             ichannel = i[:,channel]
             ichannelmax = max(ichannel)
             ichannel = 0.95*(ichannel/ichannelmax)
+            #cut out
             iabs = abs(ichannel)
             ilevel = ma.log10(iabs)
             ilevel = ilevel.filled(-15)
@@ -1295,18 +1296,68 @@ class EvaluateMint(HasPrivateTraits):
         t = linspace(0,T,len(xinv))
         komp = 1/exp((log(20000/80)*t)/T)
 
+        #from pylab import plot, show, figure, semilogx
+        #spacing = 1/51200
+
+        #VERSION1
         xinv = xinv*komp
         lendiff = len(xinv)-len(y)
+        if lendiff>0:
+            zerodiff = zeros(lendiff)
+            y = append(zerodiff,y)
+        else:
+            zerodiff = zeros(-lendiff)
+            xinv = append(zerodiff,xinv)
         xinv = append(xinv,zeros(len(xinv)))
+        y = append(y,zeros(len(y)))
+
+        #from scipy.signal import butter, lfilter
+        #fc = 79
+        #b,a = butter(5,fc/(51200/2),'highpass')
+        #xinv=lfilter(b,a,xinv)
+        #y=lfilter(b,a,y)
+
+        
+        #convolution of xinv
+        #h = fftconvolve(xinv,y,mode='full')
+        h = convolve(xinv,y)
+        """
+        #VERSION2
+        lendiff = len(x)-len(y)
+        x = append(x,zeros(len(x)))
         zerodiff = zeros(lendiff)
         y = append(y,zerodiff)
         y = append(y,zeros(len(y)))
+        from scipy.signal import butter, lfilter
+        from sounddevice import play
+        #fc = 120
+        #b,a = butter(5,fc/(51200/2),'highpass')
+        #x=lfilter(b,a,x)
+        #y=lfilter(b,a,y)
 
-        h = convolve(xinv,y)
-        hmax = max(abs(h))
+        #
+        X = fft(x)
+        Y = fft(y)
+
+        f = fftfreq(len(X),d=spacing)
+        figure(1)
+        semilogx(20*log10(X))
+        figure(2)
+        semilogx(20*log10(Y))
+        show()
+        breakpoint
+        Z = divide(Y,X)
+        h = ifft(Z)
+        #h = z[:len(z)/2]
+        breakpoint()
+        """
         indmax = argmax(abs(h))
-        h = h/hmax
+        h = h[indmax:]     
+        h = h[100:]
+        indmax = argmax(abs(h))
         h = h[indmax:]
+        hmax = max(abs(h))
+        h = h/hmax
         return h
      
     """
@@ -1385,5 +1436,3 @@ class EvaluateMint(HasPrivateTraits):
         padding = zeros(abs(lendiff))                                                                                                                            
         record1 = append(record1,padding)    
         return record1
-
-
