@@ -1090,35 +1090,6 @@ class Mint(HasPrivateTraits):
 
     fir = Trait(FiniteImpulseResponse(),FiniteImpulseResponse)
 
-    #ism = Trait(Ism(),Ism)
-
-    """
-    h = Property()
-
-    @property_depends_on('fir')
-    def _get_h(self):
-        return self.fir.h
-    
-    def choose_channel(self):
-        h = self.h    
-        hlenchannel1 = len(h)
-        hlenchannel2 = hlenchannel1
-        while hlenchannel1:
-            hlenchannel1 -=1
-            while hlenchannel2:
-                hlenchannel2 -= 1
-                if len(h[hlenchannel1]) != len(h[hlenchannel2]):
-                    break
-            else:
-                hlenchannel2 = len(h)
-                continue
-            break
-        if len(h[hlenchannel1]) != len(h[hlenchannel2]):
-            return hlenchannel1, hlenchannel2
-        else:
-            raise Exception("To invert the FIR system two impulse responses with different zeros are mandatory") 
-    """
-
     g = Property()
     
     @property_depends_on('fir')
@@ -1177,9 +1148,7 @@ class Mint(HasPrivateTraits):
         [hfilt1,hfilt2] = self.g
         for item in self.fir.result():
             yrecovered = convolve(hfilt1,item[0])
-            print("3")
             yrecovered = yrecovered[::self.fir.up]
-            print("4")
             yrecovered2 = convolve(hfilt2,item[1])
             yrecovered2 = yrecovered2[::self.fir.up]
 
