@@ -7,7 +7,7 @@ from os import path
 import unittest
 
 from acoular import __file__ as bpath, config, MicGeom, Orientation, WNoiseGenerator, PointSource, SourceMixer, Room, PointSourceIsm, MaskedTimeInOut, PowerSpectra, \
-        RectGrid, SteeringVector, BeamformerBase, L_p, IsmRealImages
+        RectGrid, SteeringVector, BeamformerBase, L_p, IsmRealImages, FilterRIR
 
 config.global_caching = "none"
 
@@ -32,7 +32,10 @@ onewall= Room()
 onewall.create_wall_orientation(position=0.3,orientation=Orientation.Y,alpha=0.0)
 
 #Create mirror source behind wall
-ism = PointSourceIsm(signal=n1, mics=mg, loc=(0.0,0.3,0.3), room=onewall, up=1)
+#HanningLpFilter
+ism = PointSourceIsm(filterrir=FilterRIR.HanningLpf, signal=n1, mics=mg, loc=(0.0,0.3,0.3), room=onewall, up=1)
+#RoundLpFilter
+ism2 = PointSourceIsm(filterrir=FilterRIR.RoundLpf, signal=n1, mics=mg, loc=(0.0,0.3,0.3), room=onewall, up=1)
 
 #steering vector
 st = SteeringVector(grid=rg, mics=mg, \
@@ -44,6 +47,7 @@ bb = BeamformerBase( freq_data=ps1, steer=st )
 pm = bb.synthetic( 8000, 3 )
 Lm1 = L_p( pm )
 
+#HanningLpFilter
 ts2 = MaskedTimeInOut(source=ism)
 ps2 = PowerSpectra( time_data=ts2, block_size=128, window='Hanning' ) 
 bb = BeamformerBase( freq_data=ps2, steer=st )
@@ -52,10 +56,20 @@ Lm2 = L_p( pm )
 
 differencedB = Lm2.max()-Lm1.max()
 
+#RoundLpFilter
+ts3 = MaskedTimeInOut(source=ism2)
+ps3 = PowerSpectra( time_data=ts3, block_size=128, window='Hanning' ) 
+bb = BeamformerBase( freq_data=ps3, steer=st )
+pm = bb.synthetic( 8000, 3 )
+Lm3 = L_p( pm )
+
+difference2dB = Lm3.max()-Lm1.max()
+
 class acoular_ism_result_test(unittest.TestCase):
 
     def test_ism_result(self):
         self.assertTrue(5 <= differencedB <= 7)
+        self.assertTrue(5 <= difference2dB <= 7)
 
 
 if "__main__" == __name__:

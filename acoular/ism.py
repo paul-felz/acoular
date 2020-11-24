@@ -292,6 +292,18 @@ class Ism(PointSource):
     def result(self,num):
         pass
 
+class FilterRIR(Enum):
+    """
+    Enum class to choose the discrete delta LPF{delta(n- tau*fs)}=
+    round: delta(n-round(tau*fs))
+    hanningLPF:  = 1/2 * (1+ cos(2*pi*t/tw))sinc(2pi*fc*t) for -tw/2<t<tw/2
+                    0                                           otherwise
+    source: Habets, Emanuel A.P.. Room Impulse Response Generator. 2017
+    """
+    RoundLpf = 0
+    HanningLpf = 1
+
+
 class PointSourceIsm(Ism):
     """
     Class to define a fixed point source including an arbitrary signal.
@@ -299,7 +311,9 @@ class PointSourceIsm(Ism):
     
     The output is being generated via the :meth:`result` generator.
     """
-
+    filterrir = Trait(FilterRIR,
+            desc="Filter used for the approximation of the impulse response discrete estimation error.")
+    
     #: Number of samples, is set automatically / 
     #: depends on :attr:`signal`.
     numsamples = Property(depends_on = ['loc','signal'])
@@ -347,46 +361,58 @@ class PointSourceIsm(Ism):
         """
         #travel distance
         rm = self.env._r(array(loc).reshape((3,1)), self.mics.mpos)
-        #discrete impulse response preparation
-        twhalf = 0.002 #twhalf = 2ms Peterson 1986
-        twhalfsamples = int(ceil(twhalf*self.sample_freq*self.up))
         #travel time index
         ind = (rm/self.env.c)*self.sample_freq*self.up
-        #future len of h
-        ind_max = rint(ind).max()
-        ind_max = ind_max.astype(int)+twhalfsamples
-        ind = array(0.5+ind,dtype=int64)
         #distance factor
         amp = 1/rm
-        #preparation of arrays
-        h = zeros((ind_max+1, self.numchannels))
-        t = arange(-twhalfsamples,twhalfsamples,1)/(self.sample_freq*self.up)
-        if ind.size == 1:
-            #h[ind[0],0] = amp[0]
-            if ind[0]-twhalfsamples > 0:          #start with 0 
-                start_impulse=-twhalfsamples+ind[0]
-                tind = 0
-            else:
-                start_impulse=0
-                tind = abs(ind[0]-twhalfsamples)
-            for j in range(start_impulse,ind[0]+twhalfsamples):  #hanning func -tw/2<t<tw/2
-                hanning = self.hanning_filt(t[tind],2*twhalf,self.sample_freq/2)
-                h[j,0]=amp[0]*hanning
-                tind+=1
-            #TODO: Unittest single impulse
-        else:
-            for i in range(0,ind.size):
-                if ind[0,i]-twhalfsamples > 0:          #start with 0 
-                    start_impulse=-twhalfsamples+ind[0,i]
+        #What filter should be applied to delta impulse
+        if self.filterrir == FilterRIR.HanningLpf:
+            #discrete impulse response preparation
+            twhalf = 0.002 #twhalf = 2ms Peterson 1986
+            twhalfsamples = int(ceil(twhalf*self.sample_freq*self.up))
+            #future len of h
+            ind_max = rint(ind).max()
+            ind_max = ind_max.astype(int)+twhalfsamples
+            ind = array(0.5+ind,dtype=int64)
+            #preparation of arrays
+            h = zeros((ind_max+1, self.numchannels))
+            t = arange(-twhalfsamples,twhalfsamples,1)/(self.sample_freq*self.up)
+            if ind.size == 1:
+                #h[ind[0],0] = amp[0]
+                if ind[0]-twhalfsamples > 0:          #start with 0 
+                    start_impulse=-twhalfsamples+ind[0]
                     tind = 0
                 else:
                     start_impulse=0
-                    tind = abs(ind[0,i]-twhalfsamples)
-                for j in range(start_impulse,ind[0,i]+twhalfsamples):  #hanning func -tw/2<t<tw/2
-
-                    hanning = self.hanning_filt(t[tind],2*twhalf,(self.sample_freq)/2)
-                    h[j,i]=amp[0,i]*hanning
-                    tind +=1
+                    tind = abs(ind[0]-twhalfsamples)
+                for j in range(start_impulse,ind[0]+twhalfsamples):  #hanning func -tw/2<t<tw/2
+                    hanning = self.hanning_filt(t[tind],2*twhalf,self.sample_freq/2)
+                    h[j,0]=amp[0]*hanning
+                    tind+=1
+                #TODO: Unittest single impulse
+            else:
+                for i in range(0,ind.size):
+                    if ind[0,i]-twhalfsamples > 0:          #start with 0 
+                        start_impulse=-twhalfsamples+ind[0,i]
+                        tind = 0
+                    else:
+                        start_impulse=0
+                        tind = abs(ind[0,i]-twhalfsamples)
+                    for j in range(start_impulse,ind[0,i]+twhalfsamples):  #hanning func -tw/2<t<tw/2
+                        hanning = self.hanning_filt(t[tind],2*twhalf,(self.sample_freq)/2)
+                        h[j,i]=amp[0,i]*hanning
+                        tind +=1
+        elif self.filterrir == FilterRIR.RoundLpf:
+            ind_max = rint(ind).max()
+            ind_max = ind_max.astype(int)
+            ind = array(0.5+ind,dtype=int64)
+            #preparation of array
+            h = zeros((ind_max+1, self.numchannels))
+            if ind.size == 1:
+                h[ind[0],0] = amp[0]
+            else:
+                for i in range(0,ind.size):
+                    h[ind[0,i],i] = amp[0,i]
         return h
 
     def result(self, num=128):

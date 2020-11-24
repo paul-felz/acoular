@@ -83,7 +83,7 @@ from .spectra import PowerSpectra, PowerSpectra as EigSpectra, synthetic
 from .ism import Orientation, Wall, WallHesse, Wall3Points, WallOrientation, Room, \
 Ism, SteeringVectorRoom, GridExtender, PointSourceIsm, IsmRealImages, \
 MovingPointSourceIsm, LoadSignal, FiniteImpulseResponse, FiniteImpulseResponseSimulation,\
-Mint, SyntheticVerb, EvaluateMint, FiniteImpulseResponseMeas
+Mint, SyntheticVerb, EvaluateMint, FiniteImpulseResponseMeas, FilterRIR
 
 from .fbeamform import BeamformerBase, BeamformerCapon, BeamformerEig, \
 BeamformerMusic, BeamformerDamas, BeamformerDamasPlus, BeamformerOrth,BeamformerCleansc, \
