@@ -8,7 +8,7 @@ nonzero, flip, linspace, exp, log, ma, argmax, mean, std, real, flipud, sinc, ce
 arange, divide
 from numpy.linalg import norm, inv
 from numpy.fft import fft, ifft, fft2, ifft2, fftshift, rfft, fftfreq
-from scipy.signal import convolve, correlate
+from scipy.signal import convolve, correlate, fftconvolve
 from scipy.io import wavfile
 
 from traits.api import HasTraits, HasPrivateTraits, Float, Int, ListInt, ListFloat, \
@@ -1209,7 +1209,7 @@ class EvaluateMint(HasPrivateTraits):
             #read and normalize
             ichannel = i[:,channel]
             ichannelmax = max(ichannel)
-            ichannel = 0.95*(ichannel/ichannelmax)
+            ichannel = 1.0*(ichannel/ichannelmax)
             #cut out
             iabs = abs(ichannel)
             ilevel = ma.log10(iabs)
@@ -1218,8 +1218,8 @@ class EvaluateMint(HasPrivateTraits):
             indices = nonzero(ilevel>-30)
             y = ichannel[indices[0][0]:indices[0][-1]]
 
+
         #INVERSE FILTER
-        #x = lsignal.signal()
         xabs = abs(x)
         xlevel = ma.log10(xabs)
         xlevel = xlevel.filled(-15)
@@ -1227,67 +1227,41 @@ class EvaluateMint(HasPrivateTraits):
         indices = nonzero(xlevel>-30)
         x = x[indices[0][0]:indices[0][-1]]
         xinv = flip(x)
+        
+        #VERSION1
+        lendiff = len(xinv)-len(y)
+        if lendiff>0:
+            zerodiff = zeros(lendiff)
+            y = append(y,zerodiff)
+        else:
+            zerodiff = zeros(-lendiff)
+            xinv = append(xinv,zerodiff)
 
         #Kompensation
         T = len(xinv)/self.sample_freq
         t = linspace(0,T,len(xinv))
         komp = 1/exp((log(20000/80)*t)/T)
-
-        #from pylab import plot, show, figure, semilogx
-        #spacing = 1/51200
-
-        #VERSION1
         xinv = xinv*komp
-        lendiff = len(xinv)-len(y)
-        if lendiff>0:
-            zerodiff = zeros(lendiff)
-            y = append(zerodiff,y)
-        else:
-            zerodiff = zeros(-lendiff)
-            xinv = append(zerodiff,xinv)
+
+        frp = fft(fftconvolve(xinv,y))
+        xinv = xinv/abs(frp[round(frp.shape[0]/4)]) 
+        #h = fftconvolve(y,xinv,mode='full') 
+
+        #anti aliasing
         xinv = append(xinv,zeros(len(xinv)))
         y = append(y,zeros(len(y)))
-
-        #from scipy.signal import butter, lfilter
-        #fc = 79
-        #b,a = butter(5,fc/(51200/2),'highpass')
-        #xinv=lfilter(b,a,xinv)
-        #y=lfilter(b,a,y)
-
         
-        #convolution of xinv
-        #h = fftconvolve(xinv,y,mode='full')
+        """
+        nyq = 0.5*51200
+        low = 100/nyq
+        high= 18000/nyq
+        b,a = butter(5, [low,high], btype='band')
+        y = lfilter(b,a,y)
+        xinv = lfilter(b,a,xinv)
+        """
+
         h = convolve(xinv,y)
-        """
-        #VERSION2
-        lendiff = len(x)-len(y)
-        x = append(x,zeros(len(x)))
-        zerodiff = zeros(lendiff)
-        y = append(y,zerodiff)
-        y = append(y,zeros(len(y)))
-        from scipy.signal import butter, lfilter
-        from sounddevice import play
-        #fc = 120
-        #b,a = butter(5,fc/(51200/2),'highpass')
-        #x=lfilter(b,a,x)
-        #y=lfilter(b,a,y)
 
-        #
-        X = fft(x)
-        Y = fft(y)
-
-        f = fftfreq(len(X),d=spacing)
-        figure(1)
-        semilogx(20*log10(X))
-        figure(2)
-        semilogx(20*log10(Y))
-        show()
-        breakpoint
-        Z = divide(Y,X)
-        h = ifft(Z)
-        #h = z[:len(z)/2]
-        breakpoint()
-        """
         indmax = argmax(abs(h))
         h = h[indmax:]     
         h = h[100:]
