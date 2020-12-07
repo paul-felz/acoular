@@ -81,10 +81,10 @@ FlowField, OpenJet, SlotJet, GeneralFlowEnvironment
 from .microphones import MicGeom
 from .spectra import PowerSpectra, PowerSpectra as EigSpectra, synthetic
 from .ism import Orientation, Wall, WallHesse, Wall3Points, WallOrientation, Room, \
-Ism, SteeringVectorRoom, GridExtender, PointSourceIsm, IsmRealImages, \
-MovingPointSourceIsm, SyntheticVerb, FilterRIR
+Ism, SteeringVectorRoom, GridExtender, FilterRIR, PointSourceIsm, IsmRealImages, \
+MovingPointSourceIsm, SyntheticVerb, SyntheticVerbMoving
 from .mint import LoadSignal, FiniteImpulseResponse, FiniteImpulseResponseSimulation,\
-Mint,  EvaluateMint, FiniteImpulseResponseMeas
+Mint,  EvaluateMint, FiniteImpulseResponseMeas, FiniteImpulseResponseSimulationMoving
 from .fbeamform import BeamformerBase, BeamformerCapon, BeamformerEig, \
 BeamformerMusic, BeamformerDamas, BeamformerDamasPlus, BeamformerOrth,BeamformerCleansc, \
 BeamformerCMF, BeamformerClean, BeamformerFunctional, BeamformerGIB, L_p, integrate, \

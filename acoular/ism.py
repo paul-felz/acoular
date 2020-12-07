@@ -302,13 +302,13 @@ class FilterRIR(Enum):
 
 class PointSourceIsm(Ism):
     """
-    Class to define a fixed point source including an arbitrary signal.
+    Class to define a fixed point source in a reverberant environment.
     This can be used for beamforming a simulated or loaded signal in a simulated room.
     
     The output is being generated via the :meth:`result` generator.
     """
     filterrir = Trait(FilterRIR,
-            desc="Filter used for the approximation of the impulse response discrete estimation error.")
+            desc="Filter used for the compensation of the impulse response discrete estimation error.")
     
     #: Number of samples, is set automatically / 
     #: depends on :attr:`signal`.
@@ -468,24 +468,11 @@ class PointSourceIsm(Ism):
                     break
         if i > 0: # if there are still samples to yield
             yield out[:i]         
-"""
-class RectAngleRoom(Ism):
-
-    def calc_rm(self, mn01, mn02, mn03):
-        for wall in self.room.walls:
-            pdb.set_trace()
-            for i in range(self.mics.mpos.shape[-1]):
-                pdb.set_trace()
-                dw = self.plane_distance(self.mics.mpos[...,i],wall.point1,wall.n0)
-                n02dw = tuple(2*dw*x for x in n0)
-                rm = 
-        return rm
-"""
 
 class MovingPointSourceIsm( PointSourceIsm ):
     """
-    Class to define a point source with an arbitrary 
-    signal moving along a given trajectory.
+    Class to define a moving point source along a given trajectory in a reverberant room.
+    This can be used for beamforming a simulated or loaded signal in a simulated room.
     This can be used in simulations.
     
     The output is being generated via the :meth:`result` generator.
@@ -522,9 +509,6 @@ class MovingPointSourceIsm( PointSourceIsm ):
         return trajectory
 
     def impulse_response(self,epslim,t):
-        #hdirect = self.impulse_response_direct(epslim,t)
-        #hreflect = self.impulse_response_reflect()
-        #h = hdirect
         h = self.calc_h(self.trajectory,epslim,t)
         hlen = h.shape[0]
         for wall in self.room.walls:
@@ -547,14 +531,11 @@ class MovingPointSourceIsm( PointSourceIsm ):
         #travel distance
         te, rm = self.delay_distance_movingsource(trajectory,epslim,t)
         #travel time
-        #ind = te*self.sample_freq
         ind2 = (rm/self.env.c)*self.sample_freq
         ind = abs(te-t)*self.sample_freq
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)
-        #num = numsamples*up + ind_max
         amp = 1/rm
-        #h = zeros((num, self.numchannels))
         h = zeros((ind_max+1, self.numchannels))
         ind = array(0.5+ind,dtype=int64)
         if ind.size == 1:
@@ -569,14 +550,11 @@ class MovingPointSourceIsm( PointSourceIsm ):
         #travel distance
         te, rm = self.delay_distance_movingsource(self.trajectory,epslim,t)
         #travel time
-        #ind = te*self.sample_freq
         ind2 = (rm/self.env.c)*self.sample_freq
         ind = abs(te-t)*self.sample_freq
         ind_max = rint(ind).max()
         ind_max = ind_max.astype(int)
-        #num = numsamples*up + ind_max
         amp = 1/rm
-        #h = zeros((num, self.numchannels))
         h = zeros((ind_max+1, self.numchannels))
         ind = array(0.5+ind,dtype=int64)
         if ind.size == 1:
@@ -642,13 +620,20 @@ class MovingPointSourceIsm( PointSourceIsm ):
         y = zeros((convsignaln,self.numchannels))
         ytemp = zeros((convsignaln,self.numchannels))
 
-        #determine length n of result function (either signal length or trajectory length)
+        #determine length n of result function (either shorter signal length or shorter trajectory length)
         numtrajectory = list(self.trajectory.points.items())[-1][0]
-        if numtrajectory<=self.numsamples/self.sample_freq:
-            n=numtrajectory*self.numsamples
-        else:
+        if numtrajectory==self.numsamples/self.sample_freq:
             n = self.numsamples
-
+        elif numtrajectory>=self.numsamples/self.sample_freq:
+            n = self.numsamples
+            temp = n/self.sample_freq
+            warnstring = "time of signal (t=%f s) is shorter than time of trajectory (t=%f s)!" %(temp,numtrajectory)
+            warnings.warn(warnstring)
+        else:
+            n = numtrajectory*self.sample_freq
+            temp = self.numsamples/self.sample_freq
+            warnstring = "time of trajectory (t=%f s) is shorter than time of signal (t=%f s)!" % (numtrajectory, temp)
+            warnings.warn(warnstring)
         while n:
             h = self.impulse_response(epslim,t)
             ylen = self.numsamples+h.shape[0]
@@ -688,10 +673,6 @@ class GridExtender(Grid):
     """
     Reflects grid on walls of room and writes them in list mirrgrids.
     """
-    #TODO
-    #Call from Steering Vector Room
-    #doesn't need to be necessarily an extra unit in script
-
     grid = Instance(Grid(), Grid)
     
     room = Trait(Room,
@@ -736,8 +717,6 @@ class GridExtender(Grid):
     
 class SteeringVectorRoom( SteeringVector ):
     
-    #TODO: Just allow extended Grids
-
     room = Instance(Room(),Room)
 
     r0mirror = Property(desc="array center to mirror grid distances")
@@ -869,11 +848,6 @@ class SyntheticVerb(PointSourceIsm):
         y = empty((self.numsamples,self.numchannels))
         for j in range(0,self.numchannels):
             y[:,j] = convolve(signal,h[:,j])
-        # distances
-        #rm = self.env._r(array(self.loc).reshape((3, 1)), self.mics.mpos)
-        # emission time relative to start_t (in samples) for first sample
-        #ind = (-rm/self.env.c-self.start_t+self.start)*self.sample_freq   
-        #ind_max = abs(ind).max(1)
         i = 0
         ind = 0
         ts = self.start_t*self.sample_freq
@@ -905,3 +879,80 @@ class SyntheticVerb(PointSourceIsm):
                     break
         if i > 0: # if there are still samples to yield
             yield out[:i]         
+
+class SyntheticVerbMoving(MovingPointSourceIsm):
+    def result(self, num=128):
+        """
+        Python generator that yields the output at microphones block-wise.
+                
+        Parameters
+        ----------
+        num : integer, defaults to 128
+            This parameter defines the size of the blocks to be yielded
+            (i.e. the number of samples per block).
+        
+        Returns
+        -------
+        Samples in blocks of shape (num, numchannels). 
+            The last block may be shorter than num.
+        """   
+        signal = self.signal.usignal(self.up)
+        out = zeros((num, self.numchannels))
+        # shortcuts and intial values
+        t = self.start*ones(self.mics.num_mics)
+        i = 0
+        ind = 0
+        epslim = 0.1/self.up/self.sample_freq
+        k = 0
+        convsignaln = self.numsamples
+        y = zeros((convsignaln,self.numchannels))
+        ytemp = zeros((convsignaln,self.numchannels))
+
+        #determine length n of result function (either shorter signal length or shorter trajectory length)
+        numtrajectory = list(self.trajectory.points.items())[-1][0]
+        if numtrajectory==self.numsamples/self.sample_freq:
+            n = self.numsamples
+        elif numtrajectory>=self.numsamples/self.sample_freq:
+            n = self.numsamples
+            temp = n/self.sample_freq
+            warnstring = "time of signal (t=%f s) is shorter than time of trajectory (t=%f s)!" %(temp,numtrajectory)
+            warnings.warn(warnstring)
+        else:
+            n = numtrajectory*self.sample_freq
+            temp = self.numsamples/self.sample_freq
+            warnstring = "time of trajectory (t=%f s) is shorter than time of signal (t=%f s)!" % (numtrajectory, temp)
+            warnings.warn(warnstring)
+        while n:
+            h = self.impulse_response(epslim,t)
+            ylen = self.numsamples+h.shape[0]
+            ylen = rint(ylen).astype(int)
+            if k<self.numsamples:
+                if ylen>convsignaln:
+                    n+=ylen-convsignaln
+                    dim1 = (ylen-convsignaln)
+                    ext = zeros((dim1,self.numchannels))
+                    y = append(y,ext, 0)
+                    convsignaln = ylen
+                ytemp = zeros((convsignaln,self.numchannels))
+                
+                for j in range(0,self.numchannels):
+                    c = convolve([signal[ind*self.up]],h[:,j])
+                    ytemp[ind:ind+c.shape[0],j]=c
+                
+                y = y + ytemp
+
+            t += 1./self.sample_freq
+            try:
+                out[i] = y[array(ind),:]
+                i += 1
+                ind += 1
+                if i == num:
+                    print("n: ",n)
+                    yield out
+                    i = 0
+            except StopIteration:
+                return
+            k += 1
+            n -= 1
+        if i>0:
+            return out[:j]

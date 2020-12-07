@@ -1,5 +1,5 @@
 import warnings
-from .ism import Ism
+from .ism import Ism, MovingPointSourceIsm
 from .signals import SignalGenerator
 from .sources import MaskedTimeSamples
 from traits.api import Trait, Property, Int, Str, Long, Array, List, Tuple, \
@@ -37,19 +37,17 @@ class LoadSignal( SignalGenerator ):
         fs, data = wavfile.read(self.wavpath)
         if data.ndim >1:
             data = data[:,0]
+        if fs != self.sample_freq:
+            data = resample(data, fs, self.sample_freq, axis=-1)
         if self.starts != 0:
             data = data[self.starts:]
         if self.stops != 0.0:
             stops = self.stops-self.starts
             data = data[:stops]
-        if fs != self.sample_freq:
-            data = resample(data, fs, self.sample_freq, axis=-1)
-            numsamples = len(data)
-            self.numsamples = numsamples
-            warnings.warn('Warning: Resample of Sound file. Reconsider sample frequency change!')
-            return data
-        else:
-            return data
+        numsamples = len(data)
+        self.numsamples = numsamples
+        warnings.warn('Warning: Resample of Sound file. Reconsider sample frequency change!')
+        return data
 
     def _get_numsamples(self):
         return self._numsamples
@@ -206,6 +204,25 @@ class FiniteImpulseResponseSimulation(FiniteImpulseResponse):
         hframe2 = hframe[hchannel2]
 
         for item in self.ism.result(self.ism.numsamples):
+            res = []
+            restemp = item[hframe1[0]:,hchannel1]
+            res.insert(0,restemp)
+            restemp = item[hframe2[0]:,hchannel2]
+            res.insert(1,restemp)
+            yield res
+
+class FiniteImpulseResponseSimulationMoving(FiniteImpulseResponseSimulation):
+
+    generator = Trait(MovingPointSourceIsm(),MovingPointSourceIsm)
+    generatornum = Int()
+
+    def result(self):
+        hframe = self.hframe
+        [hchannel1, hchannel2] = self.choose_channel(self.harray) 
+        hframe1 = hframe[hchannel1]
+        hframe2 = hframe[hchannel2]
+
+        for item in self.generator.result(self.generatornum):
             res = []
             restemp = item[hframe1[0]:,hchannel1]
             res.insert(0,restemp)
