@@ -84,24 +84,19 @@ class LoadSignal( SignalGenerator ):
         """
         return resample(self.signal(), self.sample_freq, factor*self.sample_freq)
 
-class FiniteImpulseResponse(HasPrivateTraits):
-
+class MintRIR(HasPrivateTraits):
+    """
+    Class that provides interface for finite room impulse responses and 
+    data, that should be filtered inversely by Mint.
+    """
     h = Property()
-"""
-class FiniteImpulseResponseMeasurement(FiniteImpulseResponse):
-    #normalized impulse response 
-    h = Property()
 
-    def _get_h(self):
-        #normalized length of impulse responses with hframe
-        h = []
-        for i in range (0,self.impulse_response.shape[1]):
-            hchannel = array(self.impulse_response[self.hframe[i][0]:self.hframe[i][-1]+1,i])
-            h.insert(i,hchannel)
-        return h
-
-"""
-class FiniteImpulseResponseMeas(FiniteImpulseResponse):
+class MintRIRMeasurement(MintRIR):
+    """
+    Preparate impulse response 1 and 2 and
+    measurement list with reverberated measurements.
+    impulse response 1 and 2 should not have common zeros.
+    """
     up = Int()
 
     impulse_response1 = Array()
@@ -126,8 +121,13 @@ class FiniteImpulseResponseMeas(FiniteImpulseResponse):
 
     
 
-class FiniteImpulseResponseSimulation(FiniteImpulseResponse):
-
+class MintRIRSimulation(MintRIR):
+    """
+    Preparate Simulation Finite Room Impulse Response and result generator for Mint.
+    input:
+    ism - PointSourceIsm or Synthetic Verb
+    loc - tracked source location
+    """
     ism = Trait(Ism(),Ism)
 
     #loc = Delegate('ism','loc')
@@ -211,8 +211,12 @@ class FiniteImpulseResponseSimulation(FiniteImpulseResponse):
             res.insert(1,restemp)
             yield res
 
-class FiniteImpulseResponseSimulationMoving(FiniteImpulseResponseSimulation):
-
+class MintRIRSimulationMoving(MintRIRSimulation):
+    """
+    Preparate Simulation Finite Room Impulse Response and result generator for Mint.
+    input:
+    generator - MovingPointSourceIsm or derived
+    """
     generator = Trait(MovingPointSourceIsm(),MovingPointSourceIsm)
     generatornum = Int()
 
@@ -309,7 +313,9 @@ class Mint(HasPrivateTraits):
         return yrecov
 
 class EvaluateMint(HasPrivateTraits):
-    
+    """
+    Provides methods for evaluation of the mint.
+    """
     ts = Trait(MaskedTimeSamples(),MaskedTimeSamples)
 
     #lsignal = Instance(LoadSignal(), LoadSignal)
