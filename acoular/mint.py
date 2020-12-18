@@ -6,7 +6,7 @@ from traits.api import Trait, Property, Int, Str, Long, Array, List, Tuple, \
         Delegate, Float, on_trait_change, property_depends_on, HasPrivateTraits
 from resampy import resample
 from numpy import insert, zeros, append, column_stack, log10, argmax, \
-        linspace, exp, flip, flipud, nonzero, array, where
+        linspace, exp, flip, flipud, nonzero, array, where, real
 from numpy.linalg import inv
 from numpy.fft import fft, fftshift, ifft
 from scipy.signal import convolve, fftconvolve 
@@ -236,7 +236,7 @@ class MintRIRSimulationMoving(MintRIRSimulation):
 
 class Mint(HasPrivateTraits):
 
-    fir = Trait(FiniteImpulseResponse(),FiniteImpulseResponse)
+    fir = Trait(MintRIR(),MintRIR)
 
     g = Property()
     
@@ -281,6 +281,7 @@ class Mint(HasPrivateTraits):
 
         #[hfilt1, hfilt2]^T = [g1, g2]^-1 * d
         gsquare = column_stack((g1,g2))
+        #pay attention: impulse responses with no zeros at the beginning and end are needed
         gsquareinv = inv(gsquare)
         hfilt = gsquareinv*d
 

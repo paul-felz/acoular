@@ -84,7 +84,7 @@ from .ism import Orientation, Wall, WallHesse, Wall3Points, WallOrientation, Roo
 Ism, SteeringVectorRoom, GridExtender, FilterRIR, PointSourceIsm, IsmRealImages, \
 MovingPointSourceIsm, SyntheticVerb, SyntheticVerbMoving
 from .mint import LoadSignal, MintRIR, MintRIRSimulation, MintRIRMeasurement, \
-        MintRIRSimulationMoving, EvaluateMint
+        MintRIRSimulationMoving, Mint, EvaluateMint
 from .fbeamform import BeamformerBase, BeamformerCapon, BeamformerEig, \
 BeamformerMusic, BeamformerDamas, BeamformerDamasPlus, BeamformerOrth,BeamformerCleansc, \
 BeamformerCMF, BeamformerClean, BeamformerFunctional, BeamformerGIB, L_p, integrate, \
