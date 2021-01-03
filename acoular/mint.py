@@ -6,8 +6,9 @@ from traits.api import Trait, Property, Int, Str, Long, Array, List, Tuple, \
         Delegate, Float, on_trait_change, property_depends_on, HasPrivateTraits
 from resampy import resample
 from numpy import insert, zeros, append, column_stack, log10, argmax, \
-        linspace, exp, flip, flipud, nonzero, array, where, real
-from numpy.linalg import inv
+        linspace, exp, flip, flipud, nonzero, array, where, real, \
+        dot, arange, ma, isnan, log
+from numpy.linalg import inv, norm
 from numpy.fft import fft, fftshift, ifft
 from scipy.signal import convolve, fftconvolve 
 from scipy.io import wavfile
@@ -216,6 +217,7 @@ class MintRIRSimulationMoving(MintRIRSimulation):
     Preparate Simulation Finite Room Impulse Response and result generator for Mint.
     input:
     generator - MovingPointSourceIsm or derived
+    generatornum - len of signal
     """
     generator = Trait(MovingPointSourceIsm(),MovingPointSourceIsm)
     generatornum = Int()
@@ -322,7 +324,7 @@ class EvaluateMint(HasPrivateTraits):
     #lsignal = Instance(LoadSignal(), LoadSignal)
     sample_freq = Float()
 
-    def ir_ess(self,x,channel):
+    def ir_ess(self,x,channel,ind1,ind2):
         #get data
         #TODO: i = next(self.ts.result(self.ts.numsamples_total))
         for i in self.ts.result(self.ts.numsamples_total):
@@ -370,72 +372,18 @@ class EvaluateMint(HasPrivateTraits):
         #anti aliasing
         xinv = append(xinv,zeros(len(xinv)))
         y = append(y,zeros(len(y)))
-        
-        """
-        nyq = 0.5*51200
-        low = 100/nyq
-        high= 18000/nyq
-        b,a = butter(5, [low,high], btype='band')
-        y = lfilter(b,a,y)
-        xinv = lfilter(b,a,xinv)
-        """
-
         h = convolve(xinv,y)
 
         indmax = argmax(abs(h))
-        h = h[indmax:]     
-        h = h[100:]
-        indmax = argmax(abs(h))
-        h = h[indmax:]
+        h = h[indmax+ind1:indmax+ind2]     
+        #uncomment for evaluation of thesis measurements
+        #h = h[100:]
+        #indmax = argmax(abs(h))
+        #h = h[indmax:]
         hmax = max(abs(h))
         h = h/hmax
         return h
      
-    """
-    def correlate_time_series(record1,record2):
-        #normalize and cut
-        #record1max = max(record1)                       
-        #record1 = 0.95*(record1/record1max)                                 
-        record1abs = abs(record1)                                                  
-        record1level = ma.log10(record1abs)                                        
-        record1level = record1level.filled(-15)                                    
-        record1level *= 20                                                         
-        indices1 = nonzero(record1level>-30)                                       
-        record1 = record1[indices1[0][0]:indices1[0][-1]] 
-        
-        #record2max = max(record2)                                               
-        #record2 = 0.95*(record2/record2max)                                 
-        record2abs = abs(record2)                                               
-        record2level = ma.log10(record2abs)                                     
-        record2level = record2level.filled(-15)                                 
-        record2level *= 20                                                  
-        indices2 = nonzero(record2level>-30)                                
-        record2 = record2[indices2[0][0]:indices2[0][-1]] 
-
-        lendiff = len(record1)-len(record2)                                     
-        padding = zeros(abs(lendiff))                                           
-        if lendiff>0:                                                       
-            record2 = append(record2,padding)                               
-        elif lendiff<0:                                                     
-            record1 = append(record1,padding)
-            
-        record1 = (record1 - mean(record1)) / (std(record1) * len(record1))
-        record2 = (record2 - mean(record2)) / (std(record2))
-        co = correlate(record1,record2,"full")
-        return max(co)
-
-    def correlate_series(record1,record2):
-        a = record1
-        b = record2
-        #b = zeros(data_length * 2)
-
-        #breakpoint()
-        #b[data_length/2:data_length/2+data_length] = record2 # This works for data_length being even
-
-        # Do an array flipped convolution, which is a correlation.
-        c = convolve(b, a[::-1], mode='full') 
-        return max(c)
-    """
     def cross_correlation_using_fft(x, y):
         f1 = fft(x)
         f2 = fft(flipud(y))
@@ -463,7 +411,25 @@ class EvaluateMint(HasPrivateTraits):
 
     def fit_length(record1,record2):
         #fit sizes of recordings
-        lendiff = len(record1)-len(record2)                                                                                                                        
-        padding = zeros(abs(lendiff))                                                                                                                            
+        lendiff = len(record1)-len(record2)               
+        padding = zeros(abs(lendiff))                                            
         record1 = append(record1,padding)    
         return record1
+
+    def seqsrr(s,rs,frame_len):
+        seqs = arange(0,len(s)+1,frame_len)
+        if len(s) % frame_len:
+            seqs = append(seqs,len(s))
+        seqnsrr=0
+        nseq = len(seqs)
+        for i in range(0,len(seqs)-1):
+            stemp = s[seqs[i]:seqs[i+1]]
+            rstemp = rs[seqs[i]:seqs[i+1]]
+            gamma = dot(stemp.T,rstemp)/dot(stemp.T,stemp)
+            srrtemp=20*log10(norm(gamma*stemp)/(norm(rstemp-gamma*stemp)))
+            if not isnan(srrtemp):
+                seqnsrr +=srrtemp
+            else:
+                nseq -=1
+        seqnsrr /= nseq
+        return seqnsrr
